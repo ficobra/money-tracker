@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+venv/
+.env/
+
+# macOS
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# Database
+database/*.db
+database/*.sqlite
