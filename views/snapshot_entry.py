@@ -10,6 +10,9 @@ from database.db import (
     get_all_accounts,
     get_all_accounts_with_flags,
     set_account_investment,
+    get_all_income,
+    get_snapshot_income,
+    set_snapshot_income,
     get_setting,
     set_setting,
 )
@@ -40,6 +43,8 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         self._include_estimation_var = ctk.BooleanVar(value=False)
         self._est_eom_label: ctk.CTkLabel | None = None
         self._est_total_cost: float = 0.0
+        # income_id -> StringVar for actual amount entered this month
+        self._income_amount_vars: dict[int, ctk.StringVar] = {}
         self._build()
 
     # ── Refresh (called by main.py when navigating to this view) ──────────────
@@ -185,6 +190,10 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             command=self._delete_snapshot,
         )
         # Initially hidden; shown from _load_existing when snapshot exists
+
+        # Income this month (Seasonal + Variable income sources)
+        self._income_container = ctk.CTkFrame(self, fg_color="transparent")
+        self._income_container.pack(fill="x", padx=24, pady=(0, 8))
 
         # Mid-month estimation (rebuilt when period or buffer changes)
         self._estimation_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -362,7 +371,76 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         self._update_total()
         self._editing_buffer = False
+        self._render_income_section()
         self._render_estimation()
+
+    # ── Income this month ─────────────────────────────────────────────────────
+
+    def _render_income_section(self):
+        for w in self._income_container.winfo_children():
+            w.destroy()
+        self._income_amount_vars.clear()
+
+        period = self._get_period()
+        if period is None:
+            return
+        year, month = period
+
+        all_income = list(get_all_income())
+        # Show Seasonal income active in this month, and all Variable income
+        relevant: list[dict] = []
+        for item in all_income:
+            itype = item.get("income_type", "fixed")
+            if itype == "seasonal":
+                active_str = item.get("active_months") or ""
+                active = {int(x) for x in active_str.split(",") if x.strip().isdigit()}
+                if month in active:
+                    relevant.append(dict(item))
+            elif itype == "variable":
+                relevant.append(dict(item))
+
+        if not relevant:
+            return
+
+        # Load previously saved amounts for this period
+        saved = get_snapshot_income(year, month)
+
+        card  = ctk.CTkFrame(self._income_container)
+        card.pack(fill="x")
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=14)
+
+        ctk.CTkLabel(
+            inner, text="INCOME THIS MONTH",
+            text_color="gray", font=ctk.CTkFont(size=11),
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            inner,
+            text="Enter the actual amount received for each income source below.",
+            text_color="gray", font=ctk.CTkFont(size=12),
+        ).pack(anchor="w", pady=(2, 10))
+
+        for item in relevant:
+            iid       = item["id"]
+            itype     = item.get("income_type", "variable")
+            type_lbl  = "Seasonal" if itype == "seasonal" else "Variable"
+            saved_val = saved.get(iid)
+            default   = f"{saved_val:.2f}" if saved_val is not None else f"{item['amount']:.2f}"
+
+            var = ctk.StringVar(value=default)
+            self._income_amount_vars[iid] = var
+
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(fill="x", pady=2)
+            ctk.CTkLabel(
+                row, text=item["name"], width=220, anchor="w",
+            ).pack(side="left")
+            ctk.CTkLabel(
+                row, text=type_lbl, width=80, anchor="w",
+                text_color="gray", font=ctk.CTkFont(size=11),
+            ).pack(side="left")
+            ctk.CTkLabel(row, text="EUR", anchor="w").pack(side="left", padx=(0, 4))
+            ctk.CTkEntry(row, textvariable=var, width=110).pack(side="left")
 
     # ── Totals ────────────────────────────────────────────────────────────────
 
@@ -426,6 +504,14 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         total_snapshots = save_snapshot(year, month, balances)
         for name, is_inv in investment_flags.items():
             set_account_investment(name, is_inv)
+
+        # Save actual income amounts for seasonal/variable sources
+        for income_id, var in self._income_amount_vars.items():
+            try:
+                amount = float(var.get().strip() or "0")
+                set_snapshot_income(year, month, income_id, amount)
+            except ValueError:
+                pass
 
         month_name = MONTHS[month - 1]
 

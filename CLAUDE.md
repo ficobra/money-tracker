@@ -32,22 +32,32 @@ The app uses a "snapshot" model — the user enters account balances once per mo
 - **Net Worth vs Investment Portfolio**: `total` in snapshot dicts = sum of non-investment accounts (Net Worth). `investment_total` = sum of investment accounts. Both displayed in the Snapshot and Dashboard.
 - **refresh() method**: `SnapshotEntryView` has a `refresh()` method that checks `SnapshotEntryView._pending_period` (class variable). If set by another view (e.g., Dashboard reminder), it pre-selects that period and clears the variable.
 
-### Expenses (tab)
-The "Expenses" tab is split into three sections:
+### Budget (tab)
+The "Budget" tab (renamed from "Expenses") is split into three sections:
 
 **Fixed Monthly Expenses**
 - User can define recurring monthly expenses with name, amount, and day of month
-- These are stored permanently and don't need to be re-entered each month
-- **Row selection**: Per-row Edit/Delete buttons have been replaced with a shared toolbar (Edit + Delete buttons) above the list. Clicking a row highlights it (`_selected_id`). The toolbar Edit/Delete buttons act on the selected row. If no row is selected, a hint message appears. The inline edit form (entries + Save/Cancel) still appears in-row when editing.
-- Deleting an expense shows a confirmation dialog: "Delete [name]? This cannot be undone." with Delete/Cancel buttons
+- Stored permanently; no need to re-enter each month
+- **Edit mode per section**: "Edit" toggle button in section header. When ON (shows "Done"): each row shows an "Edit" button (opens inline form) and a "×" button (confirm dialog → delete). When OFF: rows are display-only.
+- `_expenses_edit_mode: bool` tracks state; `_expenses_toggle_btn` is the toggle button ref.
+- Deleting shows: "Delete [name]? This cannot be undone." with Delete/Cancel buttons
 
 **Monthly Income**
-- User can define regular income sources with name, amount, and day of month
-- Day 0 means "Variable" (irregular payment timing)
-- Stored in `recurring_income` table
-- Same toolbar pattern as Fixed Monthly Expenses (`_income_selected_id`, `_income_editing_id`)
-- Total shown as "Expected monthly income:" below the list
+- Stored in `recurring_income` table with `income_type` and `active_months` columns
+- Three income types:
+  - `fixed` — same amount every month. Has a Day field (0 = variable timing).
+  - `seasonal` — active only in selected months. `active_months` = comma-separated month numbers (e.g. "1,3,6"). Amount = expected/base amount per active month.
+  - `variable` — appears in Monthly Snapshot as reminder; amount entered per-month via `snapshot_income` table.
+- Add form: type segmented button (Fixed / Seasonal / Variable). Seasonal shows 12 month checkboxes. Fixed shows Day field. Seasonal/Variable hide Day field.
+- **Edit mode per section**: same "Edit"/"Done" toggle pattern as Fixed Expenses (`_income_edit_mode`, `_income_toggle_btn`)
+- Each income row shows: Day, Name, Type (with active months for Seasonal), Amount
+- Total = sum of all income `amount` fields; shown as "Expected monthly income:"
 - Dashboard: "EXPECTED MONTHLY INCOME" card + "Spending Budget" (income − fixed expenses)
+
+**Snapshot income logging** (in Monthly Snapshot view)
+- `snapshot_income` table: `(year, month, income_id, actual_amount)` — stores per-month actual income for seasonal/variable sources
+- When viewing any month in Monthly Snapshot, `_render_income_section()` finds all Seasonal income active for that month and all Variable income, and shows an "INCOME THIS MONTH" card with entry fields pre-filled from `get_snapshot_income(year, month)` or the base amount
+- On Save Snapshot, `set_snapshot_income()` is called for each entry in `_income_amount_vars`
 
 **Variable Expenses**
 - Contains the **Daily Spending Allowance** setting, stored in `settings` table under key `daily_buffer`
@@ -78,7 +88,7 @@ Three charts, always in this order:
 ### Dashboard
 - **Metric cards** (always shown): NET WORTH (non-investment), MONTHLY CHANGE, FIXED EXPENSES, DISPOSABLE INCOME
 - **Extra cards** (conditional): INVESTMENT PORTFOLIO (when investment accounts exist), EXPECTED MONTHLY INCOME (when income sources exist)
-- **Reminder banner**: if `today.day > 20` and no snapshot for previous month → yellow banner at top with "Go to Snapshot" button. Button sets `SnapshotEntryView._pending_period = (prev_year, prev_month)` before calling navigate callback.
+- **Reminder banner**: if `today.day > 20` and no snapshot for previous month → yellow banner at top with "Go to Snapshot" button. Button sets `SnapshotEntryView._pending_period = (prev_year, prev_month)` before calling navigate callback. Reminder only shown when `get_earliest_snapshot()` is not None AND the previous month is strictly after the earliest snapshot (no reminders for months before data started).
 - **navigate callback**: `DashboardView.__init__` accepts `navigate=None`. `main.py` passes `navigate=self.show_view` via lambda in `_view_classes`.
 - **Annual Overview**: best/worst/avg monthly change and total saved for current year
 - **Investment Portfolio section**: shown when investment accounts exist; total current value + per-account breakdown
@@ -176,6 +186,11 @@ money-tracker/
 - `save_snapshot(year, month, balances)` — no longer takes `invested_amounts`; investment tracking is done via `is_investment` flag on accounts table only
 - `delete_snapshot(year, month)` — deletes snapshot and cascades to balances
 - `_build_snapshot_dict` in db.py: `total` = non-investment sum, `investment_total` = investment sum, `investment_balances` = {name: balance} for investment accounts
-- DB migrations in `init_db()` add `is_investment` to `accounts` and `invested_amount` to `snapshot_balances` for existing databases
+- DB migrations in `init_db()` add `is_investment` to `accounts`, `invested_amount` to `snapshot_balances`, and `income_type`/`active_months` to `recurring_income` for existing databases
+- `get_earliest_snapshot()` — returns `(year, month)` of the oldest snapshot, or None
+- `get_snapshot_income(year, month)` → `dict[int, float]` (income_id → actual_amount)
+- `set_snapshot_income(year, month, income_id, actual_amount)` — upserts a per-month actual income entry
+- `add_income(name, amount, day, income_type, active_months)` / `update_income(...)` — include income_type ('fixed'/'seasonal'/'variable') and active_months (comma-separated month numbers or None)
+- `snapshot_income` table: `(year, month, income_id, actual_amount)` UNIQUE on (year, month, income_id)
 - Recurring income: `get_all_income()`, `add_income(name, amount, day)`, `update_income(id, name, amount, day)`, `delete_income(id)` — stored in `recurring_income` table, day=0 means Variable
 - **Always update `views/help.py`** when adding or modifying features — the Help tab is the user-facing documentation for the entire app

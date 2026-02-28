@@ -38,7 +38,7 @@ class App(ctk.CTk):
         nav = [
             ("Dashboard",        "dashboard"),
             ("Monthly Snapshot", "snapshot"),
-            ("Expenses",         "expenses"),
+            ("Budget",           "expenses"),
             ("Charts",           "charts"),
             ("Notes",            "notes"),
             ("Help",             "help"),

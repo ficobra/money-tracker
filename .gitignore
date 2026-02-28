@@ -18,3 +18,8 @@ dist/
 # Database
 database/*.db
 database/*.sqlite
+*.db
+*.sqlite
+
+# Claude Code
+.claude/settings.local.json

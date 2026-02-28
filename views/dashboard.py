@@ -12,6 +12,7 @@ from database.db import (
     get_all_expenses,
     get_all_income,
     get_snapshot,
+    get_earliest_snapshot,
     get_setting,
     set_setting,
 )
@@ -206,6 +207,18 @@ class DashboardView(ctk.CTkScrollableFrame):
             prev_year, prev_month = today.year - 1, 12
         else:
             prev_year, prev_month = today.year, today.month - 1
+
+        # Only show reminder if we have at least one snapshot AND the previous month
+        # is after the earliest recorded snapshot (don't remind for months before data)
+        earliest = get_earliest_snapshot()
+        if earliest is None:
+            return  # No snapshots at all — no reminder
+
+        e_year, e_month = earliest
+        prev_as_int  = prev_year * 12 + prev_month
+        first_as_int = e_year * 12 + e_month
+        if prev_as_int <= first_as_int:
+            return  # Previous month is at or before the first snapshot — don't remind
 
         if get_snapshot(prev_year, prev_month) is not None:
             return

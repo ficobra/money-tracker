@@ -73,7 +73,18 @@ def init_db():
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 name         TEXT    NOT NULL,
                 amount       REAL    NOT NULL,
-                day_of_month INTEGER NOT NULL DEFAULT 0
+                day_of_month INTEGER NOT NULL DEFAULT 0,
+                income_type  TEXT    NOT NULL DEFAULT 'fixed',
+                active_months TEXT   DEFAULT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS snapshot_income (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                year          INTEGER NOT NULL,
+                month         INTEGER NOT NULL,
+                income_id     INTEGER NOT NULL REFERENCES recurring_income(id) ON DELETE CASCADE,
+                actual_amount REAL    NOT NULL,
+                UNIQUE(year, month, income_id)
             );
 
             CREATE TABLE IF NOT EXISTS settings (
@@ -100,6 +111,13 @@ def init_db():
         sb_cols = {row[1] for row in conn.execute("PRAGMA table_info(snapshot_balances)").fetchall()}
         if "invested_amount" not in sb_cols:
             conn.execute("ALTER TABLE snapshot_balances ADD COLUMN invested_amount REAL")
+
+        # Migrate recurring_income for income_type and active_months
+        ri_cols = {row[1] for row in conn.execute("PRAGMA table_info(recurring_income)").fetchall()}
+        if "income_type" not in ri_cols:
+            conn.execute("ALTER TABLE recurring_income ADD COLUMN income_type TEXT NOT NULL DEFAULT 'fixed'")
+        if "active_months" not in ri_cols:
+            conn.execute("ALTER TABLE recurring_income ADD COLUMN active_months TEXT DEFAULT NULL")
 
         # Seed default expenses on first run
         count = conn.execute("SELECT COUNT(*) FROM fixed_expenses").fetchone()[0]
@@ -349,23 +367,70 @@ def get_all_income() -> list[sqlite3.Row]:
         ).fetchall()
 
 
-def add_income(name: str, amount: float, day_of_month: int) -> int:
+def delete_income(income_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM recurring_income WHERE id=?", (income_id,))
+
+
+def add_income(
+    name: str,
+    amount: float,
+    day_of_month: int,
+    income_type: str = "fixed",
+    active_months: str | None = None,
+) -> int:
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO recurring_income (name, amount, day_of_month) VALUES (?, ?, ?)",
-            (name, amount, day_of_month),
+            "INSERT INTO recurring_income (name, amount, day_of_month, income_type, active_months)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (name, amount, day_of_month, income_type, active_months),
         )
         return cur.lastrowid  # type: ignore[return-value]
 
 
-def update_income(income_id: int, name: str, amount: float, day_of_month: int):
+def update_income(
+    income_id: int,
+    name: str,
+    amount: float,
+    day_of_month: int,
+    income_type: str = "fixed",
+    active_months: str | None = None,
+):
     with get_connection() as conn:
         conn.execute(
-            "UPDATE recurring_income SET name=?, amount=?, day_of_month=? WHERE id=?",
-            (name, amount, day_of_month, income_id),
+            "UPDATE recurring_income SET name=?, amount=?, day_of_month=?,"
+            " income_type=?, active_months=? WHERE id=?",
+            (name, amount, day_of_month, income_type, active_months, income_id),
         )
 
 
-def delete_income(income_id: int):
+# ── Snapshot income (actual amounts received per month) ────────────────────────
+
+def get_snapshot_income(year: int, month: int) -> dict[int, float]:
+    """Return {income_id: actual_amount} for the given snapshot period."""
     with get_connection() as conn:
-        conn.execute("DELETE FROM recurring_income WHERE id=?", (income_id,))
+        rows = conn.execute(
+            "SELECT income_id, actual_amount FROM snapshot_income WHERE year=? AND month=?",
+            (year, month),
+        ).fetchall()
+        return {r["income_id"]: r["actual_amount"] for r in rows}
+
+
+def set_snapshot_income(year: int, month: int, income_id: int, actual_amount: float):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO snapshot_income (year, month, income_id, actual_amount) VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(year, month, income_id) DO UPDATE SET actual_amount=excluded.actual_amount",
+            (year, month, income_id, actual_amount),
+        )
+
+
+# ── Earliest snapshot ──────────────────────────────────────────────────────────
+
+def get_earliest_snapshot() -> tuple[int, int] | None:
+    """Return (year, month) of the earliest saved snapshot, or None if no snapshots."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT year, month FROM snapshots ORDER BY year ASC, month ASC LIMIT 1"
+        ).fetchone()
+        return (row["year"], row["month"]) if row else None

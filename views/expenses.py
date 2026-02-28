@@ -16,26 +16,43 @@ from utils import fmt_eur
 
 # Column widths — must match between header and rows
 _W_DAY    = 60
-_W_NAME   = 260
+_W_NAME   = 220
+_W_TYPE   = 100
 _W_AMOUNT = 130
 
 _GREEN = "#2CC985"
 _RED   = "#E74C3C"
 
+_MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+_INCOME_TYPES = ["Fixed", "Seasonal", "Variable"]
+
 
 class ExpensesView(ctk.CTkScrollableFrame):
     def __init__(self, parent):
         super().__init__(parent, corner_radius=0, fg_color="transparent")
-        self._editing_id:         int | None = None
-        self._selected_id:        int | None = None
-        self._edit_status_label:  ctk.CTkLabel | None = None
-        self._toolbar_status:     ctk.CTkLabel | None = None
 
-        # Income section state
-        self._income_editing_id:         int | None = None
-        self._income_selected_id:        int | None = None
-        self._income_edit_status_label:  ctk.CTkLabel | None = None
-        self._income_toolbar_status:     ctk.CTkLabel | None = None
+        # Fixed expenses state
+        self._expenses_edit_mode: bool = False
+        self._editing_id:         int | None = None
+        self._edit_status_label:  ctk.CTkLabel | None = None
+        self._expenses_toggle_btn: ctk.CTkButton | None = None
+
+        # Income state
+        self._income_edit_mode:        bool = False
+        self._income_editing_id:       int | None = None
+        self._income_edit_status_label: ctk.CTkLabel | None = None
+        self._income_toggle_btn:       ctk.CTkButton | None = None
+
+        # Income add-form dynamic state
+        self._income_type_var: ctk.StringVar = ctk.StringVar(value="Fixed")
+        self._inc_add_months_vars: dict[int, ctk.BooleanVar] = {
+            m: ctk.BooleanVar(value=False) for m in range(1, 13)
+        }
+        self._inc_month_checkboxes_frame: ctk.CTkFrame | None = None
+        self._inc_add_day_entry: ctk.CTkEntry | None = None
+        self._inc_day_label: ctk.CTkLabel | None = None
 
         self._editing_allowance = False
         self._build()
@@ -44,7 +61,7 @@ class ExpensesView(ctk.CTkScrollableFrame):
 
     def _build(self):
         ctk.CTkLabel(
-            self, text="Expenses",
+            self, text="Budget",
             font=ctk.CTkFont(size=22, weight="bold"),
         ).pack(anchor="w", padx=24, pady=(24, 2))
         ctk.CTkLabel(
@@ -54,10 +71,20 @@ class ExpensesView(ctk.CTkScrollableFrame):
         ).pack(anchor="w", padx=24, pady=(0, 20))
 
         # ══ Fixed Monthly Expenses section ════════════════════════════════════
+
+        # Section header row with Edit toggle
+        exp_hdr = ctk.CTkFrame(self, fg_color="transparent")
+        exp_hdr.pack(fill="x", padx=24, pady=(0, 8))
         ctk.CTkLabel(
-            self, text="Fixed Monthly Expenses",
+            exp_hdr, text="Fixed Monthly Expenses",
             font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(0, 10))
+        ).pack(side="left")
+        self._expenses_toggle_btn = ctk.CTkButton(
+            exp_hdr, text="Edit", width=64,
+            fg_color="transparent", border_width=1,
+            command=self._toggle_expenses_edit,
+        )
+        self._expenses_toggle_btn.pack(side="right")
 
         # ── Add expense form ──────────────────────────────────────────────────
         add_card = ctk.CTkFrame(self)
@@ -71,7 +98,7 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._add_day.pack(side="left", padx=(0, 14))
 
         ctk.CTkLabel(form, text="Name", anchor="w").pack(side="left", padx=(0, 4))
-        self._add_name = ctk.CTkEntry(form, placeholder_text="Expense name", width=240)
+        self._add_name = ctk.CTkEntry(form, placeholder_text="Expense name", width=220)
         self._add_name.pack(side="left", padx=(0, 14))
 
         ctk.CTkLabel(form, text="EUR", anchor="w").pack(side="left", padx=(0, 4))
@@ -85,34 +112,13 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._add_status = ctk.CTkLabel(form, text="")
         self._add_status.pack(side="left")
 
-        # ── Shared toolbar (Edit / Delete act on selected row) ─────────────────
-        toolbar = ctk.CTkFrame(self, fg_color="transparent")
-        toolbar.pack(anchor="w", padx=24, pady=(0, 4))
-
-        ctk.CTkButton(
-            toolbar, text="Edit", width=64,
-            fg_color="transparent", border_width=1,
-            command=self._edit_selected,
-        ).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(
-            toolbar, text="Delete", width=72,
-            fg_color="transparent", border_width=1,
-            text_color=("#C0392B", "#E74C3C"),
-            hover_color=("gray85", "gray20"),
-            command=self._delete_selected,
-        ).pack(side="left")
-        self._toolbar_status = ctk.CTkLabel(
-            toolbar, text="Click a row to select it.",
-            text_color="gray", font=ctk.CTkFont(size=12),
-        )
-        self._toolbar_status.pack(side="left", padx=(12, 0))
-
         # ── Column headers ────────────────────────────────────────────────────
         header = ctk.CTkFrame(self, fg_color="transparent")
         header.pack(anchor="w", padx=24, pady=(0, 2))
         for text, width, anchor in [
             ("Day",    _W_DAY,    "w"),
             ("Name",   _W_NAME,   "w"),
+            ("",       _W_TYPE,   "w"),   # spacer for type column
             ("Amount", _W_AMOUNT, "e"),
         ]:
             ctk.CTkLabel(
@@ -144,13 +150,24 @@ class ExpensesView(ctk.CTkScrollableFrame):
         ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
             fill="x", padx=24, pady=(0, 20)
         )
+
+        # Section header row with Edit toggle
+        inc_hdr = ctk.CTkFrame(self, fg_color="transparent")
+        inc_hdr.pack(fill="x", padx=24, pady=(0, 4))
         ctk.CTkLabel(
-            self, text="Monthly Income",
+            inc_hdr, text="Monthly Income",
             font=ctk.CTkFont(size=15, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(0, 6))
+        ).pack(side="left")
+        self._income_toggle_btn = ctk.CTkButton(
+            inc_hdr, text="Edit", width=64,
+            fg_color="transparent", border_width=1,
+            command=self._toggle_income_edit,
+        )
+        self._income_toggle_btn.pack(side="right")
+
         ctk.CTkLabel(
             self,
-            text="Regular income sources. Use day 0 for variable or irregular payments.",
+            text="Regular income sources. Fixed = every month, Seasonal = selected months, Variable = reminder only.",
             text_color="gray", font=ctk.CTkFont(size=12),
         ).pack(anchor="w", padx=24, pady=(0, 10))
 
@@ -158,15 +175,32 @@ class ExpensesView(ctk.CTkScrollableFrame):
         inc_add_card = ctk.CTkFrame(self)
         inc_add_card.pack(fill="x", padx=24, pady=(0, 16))
 
-        inc_form = ctk.CTkFrame(inc_add_card, fg_color="transparent")
-        inc_form.pack(anchor="w", padx=16, pady=14)
+        inc_form_outer = ctk.CTkFrame(inc_add_card, fg_color="transparent")
+        inc_form_outer.pack(anchor="w", padx=16, pady=14, fill="x")
 
-        ctk.CTkLabel(inc_form, text="Day", anchor="w").pack(side="left", padx=(0, 4))
+        # Row 1: type selector
+        type_row = ctk.CTkFrame(inc_form_outer, fg_color="transparent")
+        type_row.pack(anchor="w", pady=(0, 10))
+        ctk.CTkLabel(type_row, text="Type:", anchor="w").pack(side="left", padx=(0, 8))
+        ctk.CTkSegmentedButton(
+            type_row,
+            values=_INCOME_TYPES,
+            variable=self._income_type_var,
+            command=self._on_income_type_change,
+            width=240,
+        ).pack(side="left")
+
+        # Row 2: fields
+        inc_form = ctk.CTkFrame(inc_form_outer, fg_color="transparent")
+        inc_form.pack(anchor="w")
+
+        self._inc_day_label = ctk.CTkLabel(inc_form, text="Day", anchor="w")
+        self._inc_day_label.pack(side="left", padx=(0, 4))
         self._inc_add_day = ctk.CTkEntry(inc_form, placeholder_text="0–31", width=60)
         self._inc_add_day.pack(side="left", padx=(0, 14))
 
         ctk.CTkLabel(inc_form, text="Name", anchor="w").pack(side="left", padx=(0, 4))
-        self._inc_add_name = ctk.CTkEntry(inc_form, placeholder_text="Income source", width=240)
+        self._inc_add_name = ctk.CTkEntry(inc_form, placeholder_text="Income source", width=220)
         self._inc_add_name.pack(side="left", padx=(0, 14))
 
         ctk.CTkLabel(inc_form, text="EUR", anchor="w").pack(side="left", padx=(0, 4))
@@ -180,38 +214,31 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._inc_add_status = ctk.CTkLabel(inc_form, text="")
         self._inc_add_status.pack(side="left")
 
-        # ── Income toolbar ────────────────────────────────────────────────────
-        inc_toolbar = ctk.CTkFrame(self, fg_color="transparent")
-        inc_toolbar.pack(anchor="w", padx=24, pady=(0, 4))
+        # Row 3: month checkboxes (shown for Seasonal only)
+        self._inc_month_checkboxes_frame = ctk.CTkFrame(inc_form_outer, fg_color="transparent")
+        # Not packed initially (shown only when Seasonal is selected)
 
-        ctk.CTkButton(
-            inc_toolbar, text="Edit", width=64,
-            fg_color="transparent", border_width=1,
-            command=self._income_edit_selected,
-        ).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(
-            inc_toolbar, text="Delete", width=72,
-            fg_color="transparent", border_width=1,
-            text_color=("#C0392B", "#E74C3C"),
-            hover_color=("gray85", "gray20"),
-            command=self._income_delete_selected,
-        ).pack(side="left")
-        self._income_toolbar_status = ctk.CTkLabel(
-            inc_toolbar, text="Click a row to select it.",
-            text_color="gray", font=ctk.CTkFont(size=12),
-        )
-        self._income_toolbar_status.pack(side="left", padx=(12, 0))
+        months_inner = ctk.CTkFrame(self._inc_month_checkboxes_frame, fg_color="transparent")
+        months_inner.pack(anchor="w")
+        ctk.CTkLabel(months_inner, text="Active months:", anchor="w",
+                     text_color="gray", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 8))
+        for m in range(1, 13):
+            ctk.CTkCheckBox(
+                months_inner, text=_MONTHS_SHORT[m - 1], width=56,
+                variable=self._inc_add_months_vars[m],
+            ).pack(side="left", padx=(0, 4))
 
         # ── Income column headers ─────────────────────────────────────────────
-        inc_header = ctk.CTkFrame(self, fg_color="transparent")
-        inc_header.pack(anchor="w", padx=24, pady=(0, 2))
+        inc_col_hdr = ctk.CTkFrame(self, fg_color="transparent")
+        inc_col_hdr.pack(anchor="w", padx=24, pady=(0, 2))
         for text, width, anchor in [
             ("Day",    _W_DAY,    "w"),
             ("Name",   _W_NAME,   "w"),
+            ("Type",   _W_TYPE,   "w"),
             ("Amount", _W_AMOUNT, "e"),
         ]:
             ctk.CTkLabel(
-                inc_header, text=text, width=width, anchor=anchor,
+                inc_col_hdr, text=text, width=width, anchor=anchor,
                 text_color="gray", font=ctk.CTkFont(size=12),
             ).pack(side="left")
 
@@ -266,6 +293,63 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._refresh()
         self._refresh_income()
 
+    # ── Income type change ────────────────────────────────────────────────────
+
+    def _on_income_type_change(self, value: str):
+        is_seasonal = (value == "Seasonal")
+        is_fixed    = (value == "Fixed")
+
+        # Show/hide month checkboxes
+        if is_seasonal:
+            if self._inc_month_checkboxes_frame and \
+               self._inc_month_checkboxes_frame.winfo_manager() != "pack":
+                self._inc_month_checkboxes_frame.pack(anchor="w", pady=(8, 0))
+        else:
+            if self._inc_month_checkboxes_frame and \
+               self._inc_month_checkboxes_frame.winfo_manager() == "pack":
+                self._inc_month_checkboxes_frame.pack_forget()
+
+        # Show/hide Day field (only for Fixed type)
+        if self._inc_day_label and self._inc_add_day:
+            if is_fixed:
+                if self._inc_day_label.winfo_manager() != "pack":
+                    self._inc_day_label.pack(side="left", padx=(0, 4), before=self._inc_add_day)
+                if self._inc_add_day.winfo_manager() != "pack":
+                    self._inc_add_day.pack(side="left", padx=(0, 14))
+            else:
+                if self._inc_day_label.winfo_manager() == "pack":
+                    self._inc_day_label.pack_forget()
+                if self._inc_add_day.winfo_manager() == "pack":
+                    self._inc_add_day.pack_forget()
+
+    def _get_inc_active_months_str(self) -> str | None:
+        active = [str(m) for m in range(1, 13) if self._inc_add_months_vars[m].get()]
+        return ",".join(active) if active else None
+
+    # ── Fixed expenses section edit toggle ────────────────────────────────────
+
+    def _toggle_expenses_edit(self):
+        self._expenses_edit_mode = not self._expenses_edit_mode
+        if self._expenses_toggle_btn:
+            self._expenses_toggle_btn.configure(
+                text="Done" if self._expenses_edit_mode else "Edit"
+            )
+        if not self._expenses_edit_mode:
+            self._editing_id = None
+        self._refresh()
+
+    # ── Income section edit toggle ────────────────────────────────────────────
+
+    def _toggle_income_edit(self):
+        self._income_edit_mode = not self._income_edit_mode
+        if self._income_toggle_btn:
+            self._income_toggle_btn.configure(
+                text="Done" if self._income_edit_mode else "Edit"
+            )
+        if not self._income_edit_mode:
+            self._income_editing_id = None
+        self._refresh_income()
+
     # ── Fixed expenses list rendering ─────────────────────────────────────────
 
     def _refresh(self):
@@ -284,25 +368,28 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._total_label.configure(text=fmt_eur(total))
 
     def _render_display_row(self, exp: dict):
-        is_selected = exp["id"] == self._selected_id
-        bg = ("gray82", "gray28") if is_selected else "transparent"
-
-        row = ctk.CTkFrame(self._list_frame, fg_color=bg)
+        row = ctk.CTkFrame(self._list_frame, fg_color="transparent")
         row.pack(anchor="w", pady=2, fill="x")
 
-        lbl_day    = ctk.CTkLabel(row, text=str(exp["day_of_month"]), width=_W_DAY,    anchor="w")
-        lbl_name   = ctk.CTkLabel(row, text=exp["name"],              width=_W_NAME,   anchor="w")
-        lbl_amount = ctk.CTkLabel(row, text=fmt_eur(exp["amount"]),   width=_W_AMOUNT, anchor="e")
+        ctk.CTkLabel(row, text=str(exp["day_of_month"]), width=_W_DAY,    anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text=exp["name"],              width=_W_NAME,   anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text="",                       width=_W_TYPE,   anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text=fmt_eur(exp["amount"]),   width=_W_AMOUNT, anchor="e").pack(side="left", padx=(0, 8))
 
-        lbl_day.pack(side="left")
-        lbl_name.pack(side="left")
-        lbl_amount.pack(side="left", padx=(0, 8))
-
-        def on_click(_event=None, eid=exp["id"]):
-            self._select_expense(eid)
-
-        for widget in (row, lbl_day, lbl_name, lbl_amount):
-            widget.bind("<Button-1>", on_click)
+        if self._expenses_edit_mode:
+            ctk.CTkButton(
+                row, text="Edit", width=56,
+                fg_color="transparent", border_width=1,
+                font=ctk.CTkFont(size=11),
+                command=lambda eid=exp["id"]: self._start_edit(eid),
+            ).pack(side="left", padx=(4, 4))
+            ctk.CTkButton(
+                row, text="×", width=36, height=32,
+                fg_color="transparent", border_width=1,
+                text_color=("gray40", "gray60"),
+                hover_color=("gray85", "gray25"),
+                command=lambda eid=exp["id"], n=exp["name"]: self._delete(eid, n),
+            ).pack(side="left")
 
     def _render_edit_row(self, exp: dict):
         row = ctk.CTkFrame(self._list_frame, fg_color=("gray88", "gray22"))
@@ -314,6 +401,7 @@ class ExpensesView(ctk.CTkScrollableFrame):
 
         ctk.CTkEntry(row, textvariable=day_var,    width=_W_DAY).pack(   side="left", padx=(8, 6), pady=6)
         ctk.CTkEntry(row, textvariable=name_var,   width=_W_NAME).pack(  side="left", padx=(0, 6), pady=6)
+        ctk.CTkLabel(row, text="",                 width=_W_TYPE).pack(  side="left")
         ctk.CTkEntry(row, textvariable=amount_var, width=_W_AMOUNT).pack(side="left", padx=(0, 16), pady=6)
 
         ctk.CTkButton(
@@ -331,6 +419,10 @@ class ExpensesView(ctk.CTkScrollableFrame):
 
     # ── Income list rendering ─────────────────────────────────────────────────
 
+    def refresh(self):
+        self._refresh()
+        self._refresh_income()
+
     def _refresh_income(self):
         for child in self._income_list_frame.winfo_children():
             child.destroy()
@@ -343,56 +435,179 @@ class ExpensesView(ctk.CTkScrollableFrame):
             else:
                 self._render_income_display_row(dict(item))
 
+        # Expected monthly income = sum of fixed incomes + seasonal incomes (all months avg)
         total = sum(i["amount"] for i in income_items)
         self._income_total_label.configure(text=fmt_eur(total))
 
-    def _render_income_display_row(self, item: dict):
-        is_selected = item["id"] == self._income_selected_id
-        bg = ("gray82", "gray28") if is_selected else "transparent"
+    def _income_type_label(self, item: dict) -> str:
+        t = item.get("income_type", "fixed")
+        if t == "fixed":
+            return "Fixed"
+        if t == "seasonal":
+            active = item.get("active_months") or ""
+            if active:
+                nums = [int(x) for x in active.split(",") if x.strip().isdigit()]
+                abbrs = [_MONTHS_SHORT[m - 1] for m in nums if 1 <= m <= 12]
+                return "Seasonal: " + ", ".join(abbrs)
+            return "Seasonal"
+        return "Variable"
 
-        row = ctk.CTkFrame(self._income_list_frame, fg_color=bg)
+    def _render_income_display_row(self, item: dict):
+        row = ctk.CTkFrame(self._income_list_frame, fg_color="transparent")
         row.pack(anchor="w", pady=2, fill="x")
 
-        day_text = "Variable" if item["day_of_month"] == 0 else str(item["day_of_month"])
-        lbl_day    = ctk.CTkLabel(row, text=day_text,           width=_W_DAY,    anchor="w")
-        lbl_name   = ctk.CTkLabel(row, text=item["name"],       width=_W_NAME,   anchor="w")
-        lbl_amount = ctk.CTkLabel(row, text=fmt_eur(item["amount"]), width=_W_AMOUNT, anchor="e")
+        income_type = item.get("income_type", "fixed")
+        if income_type == "fixed":
+            day_text = "Variable" if item["day_of_month"] == 0 else str(item["day_of_month"])
+        else:
+            day_text = "—"
 
-        lbl_day.pack(side="left")
-        lbl_name.pack(side="left")
-        lbl_amount.pack(side="left", padx=(0, 8))
+        type_display = self._income_type_label(item)
+        type_color   = ("gray60", "gray50")
 
-        def on_click(_event=None, iid=item["id"]):
-            self._select_income(iid)
+        ctk.CTkLabel(row, text=day_text,               width=_W_DAY,    anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text=item["name"],           width=_W_NAME,   anchor="w").pack(side="left")
+        ctk.CTkLabel(row, text=type_display,           width=_W_TYPE,   anchor="w",
+                     text_color=type_color, font=ctk.CTkFont(size=11),
+                     wraplength=_W_TYPE).pack(side="left")
+        ctk.CTkLabel(row, text=fmt_eur(item["amount"]), width=_W_AMOUNT, anchor="e").pack(side="left", padx=(0, 8))
 
-        for widget in (row, lbl_day, lbl_name, lbl_amount):
-            widget.bind("<Button-1>", on_click)
+        if self._income_edit_mode:
+            ctk.CTkButton(
+                row, text="Edit", width=56,
+                fg_color="transparent", border_width=1,
+                font=ctk.CTkFont(size=11),
+                command=lambda iid=item["id"]: self._income_start_edit(iid),
+            ).pack(side="left", padx=(4, 4))
+            ctk.CTkButton(
+                row, text="×", width=36, height=32,
+                fg_color="transparent", border_width=1,
+                text_color=("gray40", "gray60"),
+                hover_color=("gray85", "gray25"),
+                command=lambda iid=item["id"], n=item["name"]: self._delete_income_item(iid, n),
+            ).pack(side="left")
 
     def _render_income_edit_row(self, item: dict):
         row = ctk.CTkFrame(self._income_list_frame, fg_color=("gray88", "gray22"))
         row.pack(anchor="w", pady=2, fill="x")
 
-        day_val    = str(item["day_of_month"])
-        day_var    = ctk.StringVar(value=day_val)
-        name_var   = ctk.StringVar(value=item["name"])
-        amount_var = ctk.StringVar(value=f"{item['amount']:.2f}")
+        inner = ctk.CTkFrame(row, fg_color="transparent")
+        inner.pack(anchor="w", padx=8, pady=8, fill="x")
 
-        ctk.CTkEntry(row, textvariable=day_var,    width=_W_DAY).pack(   side="left", padx=(8, 6), pady=6)
-        ctk.CTkEntry(row, textvariable=name_var,   width=_W_NAME).pack(  side="left", padx=(0, 6), pady=6)
-        ctk.CTkEntry(row, textvariable=amount_var, width=_W_AMOUNT).pack(side="left", padx=(0, 16), pady=6)
+        income_type = item.get("income_type", "fixed")
+        type_var    = ctk.StringVar(value=income_type.capitalize())
+        day_var     = ctk.StringVar(value=str(item["day_of_month"]))
+        name_var    = ctk.StringVar(value=item["name"])
+        amount_var  = ctk.StringVar(value=f"{item['amount']:.2f}")
 
+        active_months_str = item.get("active_months") or ""
+        month_vars: dict[int, ctk.BooleanVar] = {}
+        for m in range(1, 13):
+            active = str(m) in active_months_str.split(",")
+            month_vars[m] = ctk.BooleanVar(value=active)
+
+        # Row 1: type + fields
+        row1 = ctk.CTkFrame(inner, fg_color="transparent")
+        row1.pack(anchor="w")
+
+        type_btn = ctk.CTkSegmentedButton(row1, values=_INCOME_TYPES, variable=type_var, width=220)
+        type_btn.pack(side="left", padx=(0, 10))
+
+        ctk.CTkEntry(row1, textvariable=name_var, width=220).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(row1, text="EUR").pack(side="left", padx=(0, 4))
+        ctk.CTkEntry(row1, textvariable=amount_var, width=100).pack(side="left", padx=(0, 10))
+
+        day_lbl   = ctk.CTkLabel(row1, text="Day")
+        day_entry = ctk.CTkEntry(row1, textvariable=day_var, width=60)
+
+        def refresh_type_fields(*_):
+            t = type_var.get()
+            if t == "Fixed":
+                if day_lbl.winfo_manager() != "pack":
+                    day_lbl.pack(side="left", padx=(0, 4))
+                if day_entry.winfo_manager() != "pack":
+                    day_entry.pack(side="left", padx=(0, 10))
+            else:
+                if day_lbl.winfo_manager() == "pack":
+                    day_lbl.pack_forget()
+                if day_entry.winfo_manager() == "pack":
+                    day_entry.pack_forget()
+            if t == "Seasonal":
+                if months_row.winfo_manager() != "pack":
+                    months_row.pack(anchor="w", pady=(6, 0))
+            else:
+                if months_row.winfo_manager() == "pack":
+                    months_row.pack_forget()
+
+        type_var.trace_add("write", refresh_type_fields)
+
+        # Row 2: month checkboxes (Seasonal)
+        months_row = ctk.CTkFrame(inner, fg_color="transparent")
+        months_inner = ctk.CTkFrame(months_row, fg_color="transparent")
+        months_inner.pack(anchor="w")
+        ctk.CTkLabel(months_inner, text="Active months:", text_color="gray",
+                     font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 6))
+        for m in range(1, 13):
+            ctk.CTkCheckBox(
+                months_inner, text=_MONTHS_SHORT[m - 1], width=56,
+                variable=month_vars[m],
+            ).pack(side="left", padx=(0, 4))
+
+        # Row 3: Save / Cancel
+        btn_row = ctk.CTkFrame(inner, fg_color="transparent")
+        btn_row.pack(anchor="w", pady=(6, 0))
+
+        self._income_edit_status_label = ctk.CTkLabel(btn_row, text="")
+
+        def do_save():
+            active_str: str | None = None
+            if type_var.get() == "Seasonal":
+                active = [str(m) for m in range(1, 13) if month_vars[m].get()]
+                active_str = ",".join(active) if active else None
+            day_val = 0
+            if type_var.get() == "Fixed":
+                try:
+                    day_val = int(day_var.get().strip())
+                    if not 0 <= day_val <= 31:
+                        raise ValueError
+                except ValueError:
+                    if self._income_edit_status_label:
+                        self._income_edit_status_label.configure(
+                            text="Day must be 0–31.", text_color=_RED
+                        )
+                    return
+            name = name_var.get().strip()
+            if not name:
+                if self._income_edit_status_label:
+                    self._income_edit_status_label.configure(
+                        text="Name required.", text_color=_RED
+                    )
+                return
+            try:
+                amount = float(amount_var.get().strip())
+                if amount < 0:
+                    raise ValueError
+            except ValueError:
+                if self._income_edit_status_label:
+                    self._income_edit_status_label.configure(
+                        text="Invalid amount.", text_color=_RED
+                    )
+                return
+            income_type_db = type_var.get().lower()
+            update_income(item["id"], name, amount, day_val, income_type_db, active_str)
+            self._income_editing_id = None
+            self._refresh_income()
+
+        ctk.CTkButton(btn_row, text="Save", width=64, command=do_save).pack(side="left", padx=(0, 6))
         ctk.CTkButton(
-            row, text="Save", width=64,
-            command=lambda: self._income_save_edit(item["id"], day_var, name_var, amount_var),
-        ).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(
-            row, text="Cancel", width=72,
+            btn_row, text="Cancel", width=72,
             fg_color="transparent", border_width=1,
             command=self._income_cancel_edit,
         ).pack(side="left", padx=(0, 8))
-
-        self._income_edit_status_label = ctk.CTkLabel(row, text="")
         self._income_edit_status_label.pack(side="left")
+
+        # Apply initial type-specific visibility
+        refresh_type_fields()
 
     # ── Allowance row ─────────────────────────────────────────────────────────
 
@@ -450,69 +665,6 @@ class ExpensesView(ctk.CTkScrollableFrame):
     def _cancel_allowance_edit(self):
         self._editing_allowance = False
         self._refresh_allowance_row()
-
-    # ── Fixed expense row selection ───────────────────────────────────────────
-
-    def _select_expense(self, expense_id: int):
-        self._selected_id = expense_id
-        self._editing_id  = None
-        if self._toolbar_status:
-            self._toolbar_status.configure(text="")
-        self._refresh()
-
-    def _edit_selected(self):
-        if self._selected_id is None:
-            if self._toolbar_status:
-                self._toolbar_status.configure(
-                    text="Select an expense first.", text_color="gray"
-                )
-            return
-        self._start_edit(self._selected_id)
-
-    def _delete_selected(self):
-        if self._selected_id is None:
-            if self._toolbar_status:
-                self._toolbar_status.configure(
-                    text="Select an expense first.", text_color="gray"
-                )
-            return
-        expenses = list(get_all_expenses())
-        exp = next((e for e in expenses if e["id"] == self._selected_id), None)
-        if exp is None:
-            return
-        self._delete(self._selected_id, exp["name"])
-
-    # ── Income row selection ──────────────────────────────────────────────────
-
-    def _select_income(self, income_id: int):
-        self._income_selected_id = income_id
-        self._income_editing_id  = None
-        if self._income_toolbar_status:
-            self._income_toolbar_status.configure(text="")
-        self._refresh_income()
-
-    def _income_edit_selected(self):
-        if self._income_selected_id is None:
-            if self._income_toolbar_status:
-                self._income_toolbar_status.configure(
-                    text="Select an income source first.", text_color="gray"
-                )
-            return
-        self._income_editing_id = self._income_selected_id
-        self._refresh_income()
-
-    def _income_delete_selected(self):
-        if self._income_selected_id is None:
-            if self._income_toolbar_status:
-                self._income_toolbar_status.configure(
-                    text="Select an income source first.", text_color="gray"
-                )
-            return
-        items = list(get_all_income())
-        item = next((i for i in items if i["id"] == self._income_selected_id), None)
-        if item is None:
-            return
-        self._delete_income_item(self._income_selected_id, item["name"])
 
     # ── Fixed expense actions ─────────────────────────────────────────────────
 
@@ -589,24 +741,15 @@ class ExpensesView(ctk.CTkScrollableFrame):
         delete_expense(expense_id)
         if self._editing_id == expense_id:
             self._editing_id = None
-        if self._selected_id == expense_id:
-            self._selected_id = None
         self._refresh()
 
     # ── Income actions ────────────────────────────────────────────────────────
 
     def _add_income_item(self):
-        day_str    = self._inc_add_day.get().strip()
-        name       = self._inc_add_name.get().strip()
-        amount_str = self._inc_add_amount.get().strip()
+        income_type = self._income_type_var.get().lower()
+        name        = self._inc_add_name.get().strip()
+        amount_str  = self._inc_add_amount.get().strip()
 
-        try:
-            day = int(day_str)
-            if not 0 <= day <= 31:
-                raise ValueError
-        except ValueError:
-            self._set_inc_add_status("Day must be 0–31 (0 = Variable).", error=True)
-            return
         if not name:
             self._set_inc_add_status("Name is required.", error=True)
             return
@@ -618,41 +761,35 @@ class ExpensesView(ctk.CTkScrollableFrame):
             self._set_inc_add_status("Invalid amount.", error=True)
             return
 
-        add_income(name, amount, day)
-        self._inc_add_day.delete(0, "end")
+        day = 0
+        active_months_str: str | None = None
+
+        if income_type == "fixed":
+            day_str = self._inc_add_day.get().strip()
+            try:
+                day = int(day_str)
+                if not 0 <= day <= 31:
+                    raise ValueError
+            except ValueError:
+                self._set_inc_add_status("Day must be 0–31 (0 = Variable).", error=True)
+                return
+        elif income_type == "seasonal":
+            active_months_str = self._get_inc_active_months_str()
+            if not active_months_str:
+                self._set_inc_add_status("Select at least one active month.", error=True)
+                return
+
+        add_income(name, amount, day, income_type, active_months_str)
         self._inc_add_name.delete(0, "end")
         self._inc_add_amount.delete(0, "end")
+        self._inc_add_day.delete(0, "end")
+        for v in self._inc_add_months_vars.values():
+            v.set(False)
         self._set_inc_add_status(f'"{name}" added.', error=False)
         self._refresh_income()
 
-    def _income_save_edit(
-        self,
-        income_id: int,
-        day_var: ctk.StringVar,
-        name_var: ctk.StringVar,
-        amount_var: ctk.StringVar,
-    ):
-        try:
-            day = int(day_var.get().strip())
-            if not 0 <= day <= 31:
-                raise ValueError
-        except ValueError:
-            self._set_income_edit_status("Day must be 0–31.", error=True)
-            return
-        name = name_var.get().strip()
-        if not name:
-            self._set_income_edit_status("Name is required.", error=True)
-            return
-        try:
-            amount = float(amount_var.get().strip())
-            if amount < 0:
-                raise ValueError
-        except ValueError:
-            self._set_income_edit_status("Invalid amount.", error=True)
-            return
-
-        update_income(income_id, name, amount, day)
-        self._income_editing_id = None
+    def _income_start_edit(self, income_id: int):
+        self._income_editing_id = income_id
         self._refresh_income()
 
     def _income_cancel_edit(self):
@@ -668,8 +805,6 @@ class ExpensesView(ctk.CTkScrollableFrame):
         delete_income(income_id)
         if self._income_editing_id == income_id:
             self._income_editing_id = None
-        if self._income_selected_id == income_id:
-            self._income_selected_id = None
         self._refresh_income()
 
     # ── Status helpers ────────────────────────────────────────────────────────
@@ -691,13 +826,6 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._inc_add_status.configure(text=text, text_color=color)
         if not error:
             self.after(3000, lambda: self._inc_add_status.configure(text=""))
-
-    def _set_income_edit_status(self, text: str, *, error: bool):
-        if self._income_edit_status_label is None:
-            return
-        self._income_edit_status_label.configure(
-            text=text, text_color="#E74C3C" if error else "#2CC985"
-        )
 
     def _confirm_dialog(
         self, message: str, *, confirm_text: str = "Confirm", cancel_text: str = "Cancel"

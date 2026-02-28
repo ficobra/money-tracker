@@ -118,7 +118,7 @@ class HelpView(ctk.CTkScrollableFrame):
         )
 
         self._divider()
-        self._section("Expenses Tab")
+        self._section("Budget Tab")
 
         self._heading("Fixed Monthly Expenses")
         self._body(
@@ -127,9 +127,9 @@ class HelpView(ctk.CTkScrollableFrame):
             "permanently in the list. They are used in mid-month estimation calculations."
         )
         self._body(
-            "To select an expense, click on its row — it will be highlighted. Then use "
-            "the Edit or Delete buttons in the toolbar above the list. Edit opens an "
-            "inline form in the same row; Save commits the change."
+            "Click Edit in the section header to enter edit mode. In edit mode, each row "
+            "shows an Edit button (opens an inline form to change the day, name, and amount) "
+            "and a × button (asks for confirmation, then deletes). Click Done to exit edit mode."
         )
         self._body(
             "Expenses with day 31 are treated as end-of-month charges and are always "
@@ -138,9 +138,27 @@ class HelpView(ctk.CTkScrollableFrame):
 
         self._heading("Monthly Income")
         self._body(
-            "Track your regular income sources (salary, freelance, side income, etc.). "
-            "Each entry has a name, amount, and day of month when it typically arrives. "
-            "Use day 0 for variable or irregular payments."
+            "Track your regular income sources (salary, freelance, seasonal work, etc.). "
+            "Each income source has a type:"
+        )
+        self._bullet(
+            "Fixed — same amount every month, active every month. Specify the day of "
+            "month it typically arrives (0 = variable timing)."
+        )
+        self._bullet(
+            "Seasonal — active only in selected months (e.g. summer work, quarterly bonus). "
+            "Choose active months via the checkboxes. When you open Monthly Snapshot for an "
+            "active month, an 'Income This Month' section appears so you can log the actual "
+            "amount received."
+        )
+        self._bullet(
+            "Variable — appears every month in the 'Income This Month' section of Monthly "
+            "Snapshot as a reminder. Enter the actual amount received each month. "
+            "The base amount in the Budget tab is an estimate only."
+        )
+        self._body(
+            "Click Edit in the Monthly Income section header to enter edit mode. In edit "
+            "mode, each row shows Edit and × buttons. Click Done to exit."
         )
         self._body(
             "The total of all income sources appears as 'Expected Monthly Income' on the "
@@ -171,7 +189,7 @@ class HelpView(ctk.CTkScrollableFrame):
             "with percentage"
         )
         self._bullet(
-            "Fixed Expenses — sum of all your fixed monthly expenses (from the Expenses tab)"
+            "Fixed Expenses — sum of all your fixed monthly expenses (from the Budget tab)"
         )
         self._bullet(
             "Disposable Income — Monthly Change minus Fixed Expenses. Positive means you "
@@ -190,7 +208,9 @@ class HelpView(ctk.CTkScrollableFrame):
         self._body(
             "If today is after the 20th and no snapshot has been saved for the previous "
             "month, a yellow reminder banner appears at the top of the Dashboard. "
-            "Click Go to Snapshot to jump directly to the snapshot entry for that month."
+            "Click Go to Snapshot to jump directly to the snapshot entry for that month. "
+            "The reminder only appears for months after your first ever recorded snapshot — "
+            "it will never prompt you for periods before you started tracking."
         )
 
         self._heading("Investment Portfolio section")
@@ -303,8 +323,10 @@ class HelpView(ctk.CTkScrollableFrame):
             "so the Dashboard shows it separately from your liquid net worth."
         )
         self._bullet(
-            "Add your salary and any other regular income to the Monthly Income section so "
-            "the Dashboard can calculate your Spending Budget."
+            "Add your salary and any other regular income to the Monthly Income section "
+            "(Budget tab) so the Dashboard can calculate your Spending Budget. Use the "
+            "Fixed type for salary, Seasonal for things like summer work or quarterly "
+            "bonuses, and Variable for irregular cash payments."
         )
         self._bullet(
             "Use the Extra one-time cost field in the mid-month deduction dialog for known "
