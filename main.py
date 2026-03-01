@@ -1,5 +1,7 @@
+import os
 import customtkinter as ctk
 import darkdetect
+from PIL import Image
 
 from database.db import init_db, get_setting
 from views.dashboard import DashboardView
@@ -83,8 +85,19 @@ class App(ctk.CTk):
             btn.pack(padx=12, pady=3, fill="x")
             self._nav_buttons[key] = btn
 
-        # Flexible spacer — pushes Exit App to the very bottom of the sidebar
+        # Flexible spacer — pushes icon + Exit to the very bottom of the sidebar
         ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(fill="both", expand=True)
+
+        # App icon image
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Money Tracker.png")
+        try:
+            _img = Image.open(_icon_path)
+            _ctk_img = ctk.CTkImage(light_image=_img, dark_image=_img, size=(102, 102))
+            ctk.CTkLabel(
+                self.sidebar, image=_ctk_img, text="",
+            ).pack(pady=(0, 8))
+        except Exception:
+            pass
 
         # Exit App button — always anchored to the bottom
         ctk.CTkButton(
