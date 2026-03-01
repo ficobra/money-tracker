@@ -215,22 +215,6 @@ class ExpensesView(ctk.CTkScrollableFrame):
         self._income_list_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._income_list_frame.pack(anchor="w", padx=24, fill="x")
 
-        # Income total
-        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", padx=24, pady=(16, 10)
-        )
-        inc_total_row = ctk.CTkFrame(self, fg_color="transparent")
-        inc_total_row.pack(anchor="w", padx=24, pady=(0, 32))
-        ctk.CTkLabel(
-            inc_total_row, text="Expected monthly income:",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).pack(side="left", padx=(0, 10))
-        self._income_total_label = ctk.CTkLabel(
-            inc_total_row, text="€0,00",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        )
-        self._income_total_label.pack(side="left")
-
         self._refresh()
         self._refresh_income()
 
@@ -375,9 +359,6 @@ class ExpensesView(ctk.CTkScrollableFrame):
         income_items = get_all_income()
         for item in income_items:
             self._render_income_row(dict(item))
-
-        total = sum(i["amount"] for i in income_items)
-        self._income_total_label.configure(text=fmt_eur(total))
 
     @staticmethod
     def _format_active_months(item: dict) -> str:
