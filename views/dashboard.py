@@ -409,7 +409,7 @@ class DashboardView(ctk.CTkScrollableFrame):
 
         buf_row = ctk.CTkFrame(inner, fg_color="transparent")
         buf_row.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(buf_row, text="Daily buffer:", anchor="w",
+        ctk.CTkLabel(buf_row, text="Daily Spending Allowance:", anchor="w",
                      text_color="gray", font=ctk.CTkFont(size=12)).pack(side="left")
         if self._editing_buffer:
             buf_var = ctk.StringVar(value=f"{daily_buffer:.1f}")
@@ -446,25 +446,10 @@ class DashboardView(ctk.CTkScrollableFrame):
 
         est_row(f"Latest net worth  ({_mlabel(latest['year'], latest['month'])})",
                 fmt_eur(latest["total"]))
-        est_row(f"Buffer cost  ({remaining_days} days × €{daily_buffer:.0f}/day)",
+        est_row(f"Daily Spending Allowance  ({remaining_days} days × €{daily_buffer:.0f}/day)",
                 f"–{fmt_eur(buffer_cost)}", _RED)
-
-        expenses_hdr = ctk.CTkFrame(inner, fg_color="transparent")
-        expenses_hdr.pack(fill="x", pady=(2, 0))
-        ctk.CTkLabel(expenses_hdr,
-                     text=f"Fixed expenses this month  ({len(all_fx)} items)",
-                     anchor="w", text_color="gray",
-                     font=ctk.CTkFont(size=12)).pack(side="left")
-        ctk.CTkLabel(expenses_hdr, text=f"–{fmt_eur(fx_total)}",
-                     anchor="e", text_color=_RED,
-                     font=ctk.CTkFont(size=12)).pack(side="right")
-
-        for e in all_fx:
-            d     = e["day_of_month"]
-            eff_d = effective_charge_day(today.year, today.month, d, last_day)
-            day_label = "end of month" if (d == 31 and last_day < 31) else f"day {eff_d}"
-            est_row(f"  · {e['name']}  ({day_label})",
-                    f"–{fmt_eur(e['amount'])}", _RED, small=True)
+        est_row(f"Fixed expenses this month  ({len(all_fx)} items)",
+                f"–{fmt_eur(fx_total)}", _RED)
 
         ctk.CTkFrame(inner, height=1, fg_color=("gray80", "gray30")).pack(
             fill="x", pady=(8, 8)

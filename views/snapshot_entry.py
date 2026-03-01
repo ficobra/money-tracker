@@ -600,7 +600,7 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         buf_row = ctk.CTkFrame(inner, fg_color="transparent")
         buf_row.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(buf_row, text="Daily buffer:", anchor="w",
+        ctk.CTkLabel(buf_row, text="Daily Spending Allowance:", anchor="w",
                      text_color="gray", font=ctk.CTkFont(size=12)).pack(side="left")
         if self._editing_buffer:
             buf_var = ctk.StringVar(value=f"{daily_buffer:.1f}")
@@ -635,7 +635,7 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             ctk.CTkLabel(r, text=label, anchor="w", text_color="gray", font=fs).pack(side="left")
             ctk.CTkLabel(r, text=value, anchor="e", text_color=color, font=fs).pack(side="right")
 
-        est_row(f"Buffer cost  ({remaining_days} days × €{daily_buffer:.0f}/day)",
+        est_row(f"Daily Spending Allowance  ({remaining_days} days × €{daily_buffer:.0f}/day)",
                 f"–{fmt_eur(buffer_cost)}", _RED)
 
         expenses_hdr = ctk.CTkFrame(inner, fg_color="transparent")

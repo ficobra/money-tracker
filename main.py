@@ -83,6 +83,18 @@ class App(ctk.CTk):
             btn.pack(padx=12, pady=3, fill="x")
             self._nav_buttons[key] = btn
 
+        # Flexible spacer — pushes Exit App to the very bottom of the sidebar
+        ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(fill="both", expand=True)
+
+        # Exit App button — always anchored to the bottom
+        ctk.CTkButton(
+            self.sidebar, text="Exit", anchor="w",
+            fg_color="transparent",
+            text_color="#FF4444",
+            hover_color=("#ffcccc", "#5a1a1a"),
+            command=lambda: (self.quit(), self.destroy()),
+        ).pack(padx=12, pady=(0, 16), fill="x")
+
         # ── Content area ─────────────────────────────────────────────────────
         self.content = ctk.CTkFrame(self, corner_radius=0)
         self.content.pack(side="right", fill="both", expand=True)
@@ -106,12 +118,20 @@ class App(ctk.CTk):
                     if event.widget is getattr(w, "_parent_canvas", None):
                         return
                     try:
+                        canvas    = w._parent_canvas
+                        scroll_up = (hasattr(event, "delta") and event.delta > 0) or (getattr(event, "num", 0) == 4)
+                        # Block upward scroll when already at the top
+                        if scroll_up and canvas.yview()[0] <= 0:
+                            return
                         if hasattr(event, "delta") and event.delta:
-                            w._parent_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+                            canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
                         elif event.num == 4:
-                            w._parent_canvas.yview_scroll(-1, "units")
+                            canvas.yview_scroll(-1, "units")
                         elif event.num == 5:
-                            w._parent_canvas.yview_scroll(1, "units")
+                            canvas.yview_scroll(1, "units")
+                        # Clamp: prevent over-scrolling above the top boundary
+                        if canvas.yview()[0] < 0:
+                            canvas.yview_moveto(0)
                     except Exception:
                         pass
                     return

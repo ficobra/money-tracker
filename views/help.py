@@ -102,7 +102,7 @@ class HelpView(ctk.CTkScrollableFrame):
             "When you select the current month and no snapshot has been saved yet, a "
             "Mid-Month Estimation card appears automatically. It shows:"
         )
-        self._bullet("Buffer cost: remaining days × your Daily Spending Allowance")
+        self._bullet("Daily Spending Allowance: remaining days × your EUR/day rate")
         self._bullet(
             "Fixed expenses this month: all fixed monthly expenses for the entire month "
             "(regardless of whether they have already passed). Each expense shows its effective "

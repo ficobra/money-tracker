@@ -62,7 +62,32 @@ class ChartsView(ctk.CTkScrollableFrame):
         self._income_tracker_vars: dict[int, ctk.BooleanVar] = {}
         self._income_names: dict[int, str] = {}
         self._income_snap_data: list[dict[int, float]] = []
+        self._patch_canvas_scroll()
         self._build()
+
+    def _patch_canvas_scroll(self):
+        """Replace CTkScrollableFrame's _parent_canvas scroll binding with a
+        boundary-aware version that blocks upward scrolling at the top.
+        Returns 'break' to prevent the global bind_all handler from also firing."""
+        canvas = self._parent_canvas
+
+        def _safe_scroll(event):
+            scroll_up = getattr(event, "delta", 0) > 0 or getattr(event, "num", 0) == 4
+            if scroll_up and canvas.yview()[0] <= 0:
+                return "break"
+            if getattr(event, "delta", 0):
+                canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+            elif event.num == 4:
+                canvas.yview_scroll(-1, "units")
+            elif event.num == 5:
+                canvas.yview_scroll(1, "units")
+            if canvas.yview()[0] < 0:
+                canvas.yview_moveto(0)
+            return "break"
+
+        canvas.bind("<MouseWheel>", _safe_scroll)
+        canvas.bind("<Button-4>",   _safe_scroll)
+        canvas.bind("<Button-5>",   _safe_scroll)
 
     # ── Static skeleton ───────────────────────────────────────────────────────
 

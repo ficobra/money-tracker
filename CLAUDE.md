@@ -54,7 +54,8 @@ The "Budget" tab is split into two sections:
 
 ### Mid-Month Estimation
 - Shown in both Monthly Snapshot view and Dashboard when: selected period = current month, today is not the last day of the month, and no snapshot has been saved yet for this month
-- **Buffer cost**: `remaining_days × daily_buffer`; **Fixed expenses this month**: ALL fixed expenses for the entire month (no "remaining" filter — all are shown and subtracted). Formula: `estimated_eom = latest_nw - fx_total - buffer_cost`
+- **Daily Spending Allowance line**: `remaining_days × daily_buffer`; **Fixed expenses this month**: ALL fixed expenses for the entire month (no "remaining" filter — all are shown and subtracted). Formula: `estimated_eom = latest_nw - fx_total - buffer_cost`
+- **Dashboard estimation**: shows 3 collapsed lines (no per-expense breakdown): "Daily Spending Allowance (X days × €Y/day)", "Fixed expenses this month (N items)", then "Estimated end-of-month net worth". **Monthly Snapshot estimation**: shows full per-expense breakdown with banking day labels.
 - **Banking day logic**: `effective_charge_day(year, month, day_of_month, last_day)` in `utils.py`. Saturday → following Monday (+2), Sunday → following Monday (+1), clamped to last_day. Applied to day labels in estimation cards (both dashboard.py and snapshot_entry.py). Day-31 special case: always shown in months shorter than 31 days (label: "end of month").
 - **Post-save deduction dialog** (`_maybe_show_deduction_dialog`): still filters to REMAINING expenses only (effective_charge_day > today.day) since it's for balance adjustment after saving mid-month
 - **Daily buffer** (default: 20 EUR/day) is editable directly in the estimation card (Edit button) and from the Settings tab; stored in `settings` table under key `daily_buffer`
@@ -161,7 +162,9 @@ money-tracker/
 - Confirmation dialogs: `result = [False]`, `CTkToplevel` + `grab_set()` + `wait_window()`; buttons set `result[0]` then `dialog.destroy()`; always call `center_on_parent(dialog, self, width, height)` BEFORE `grab_set()` so dialogs appear centered on the main window
 - Mid-month estimation: ALL fixed expenses are shown/subtracted (not just remaining). Day-31 expenses always included in months shorter than 31 days (shown as "end of month").
 - Banking day: use `effective_charge_day(year, month, day_of_month, last_day)` from `utils.py` for display labels. Post-save deduction dialog still filters to remaining expenses (eff_d > today.day).
-- Global scroll: `_bind_global_scroll()` in `App` (main.py) uses `bind_all("<MouseWheel>")` + `<Button-4/5>` to walk widget hierarchy and call `_parent_canvas.yview_scroll()` on the nearest CTkScrollableFrame ancestor
+- Global scroll: `_bind_global_scroll()` in `App` (main.py) uses `bind_all("<MouseWheel>")` + `<Button-4/5>` to walk widget hierarchy; pre-checks boundary (`yview()[0] <= 0` → block up-scroll) before calling `yview_scroll()`; also clamps yview to ≥0 after each scroll
+- Charts scroll: `_patch_canvas_scroll()` in `ChartsView` replaces `_parent_canvas` MouseWheel bindings with a boundary-aware version that returns `"break"` to prevent the global handler from double-firing
+- Sidebar: "Exit App" button anchored to very bottom via a `fill="both", expand=True` spacer frame; `text_color="#FF4444"`, `hover_color="transparent"`; calls `self.quit()` + `self.destroy()`; no confirmation, no divider above it
 - `get_all_accounts()` in db.py returns all accounts ever saved, ordered by insertion (`ORDER BY id`)
 - `_build_snapshot_dict`: `total` = non-investment sum, `investment_total` = investment sum
 - Income active_months: NULL or empty string = active every month; otherwise comma-separated month numbers
