@@ -16,7 +16,7 @@ from database.db import (
     get_setting,
     set_setting,
 )
-from utils import fmt_eur, fmt_eur_signed
+from utils import fmt_eur, fmt_eur_signed, effective_charge_day
 
 MONTHS = [
     "January", "February", "March", "April",
@@ -44,22 +44,21 @@ class DashboardView(ctk.CTkScrollableFrame):
     # ── Static skeleton ───────────────────────────────────────────────────────
 
     def _build(self):
-        # ── Reminder banner (shown when prev month has no snapshot) ───────────
+        # ── Reminder banner (not pre-packed; shown dynamically in _render_reminder) ─
         self._reminder_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._reminder_frame.pack(fill="x", padx=24, pady=(16, 0))
 
         # Header row: title left, period right
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=24, pady=(8, 2))
-        header.columnconfigure(0, weight=1)
+        self._header = ctk.CTkFrame(self, fg_color="transparent")
+        self._header.pack(fill="x", padx=24, pady=(16, 2))
+        self._header.columnconfigure(0, weight=1)
 
         ctk.CTkLabel(
-            header, text="Dashboard",
+            self._header, text="Dashboard",
             font=ctk.CTkFont(size=22, weight="bold"),
         ).grid(row=0, column=0, sticky="w")
 
         self._period_label = ctk.CTkLabel(
-            header, text="", text_color="gray",
+            self._header, text="", text_color="gray",
             font=ctk.CTkFont(size=13),
         )
         self._period_label.grid(row=0, column=1, sticky="e")
@@ -108,6 +107,18 @@ class DashboardView(ctk.CTkScrollableFrame):
 
         self._breakdown_frame = ctk.CTkFrame(self, fg_color="transparent")
         self._breakdown_frame.pack(anchor="w", padx=24, fill="x", pady=(0, 24))
+
+        # ── Snapshot History ──────────────────────────────────────────────────
+        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
+            fill="x", padx=24, pady=(0, 16)
+        )
+        ctk.CTkLabel(
+            self, text="Snapshot History",
+            font=ctk.CTkFont(size=15, weight="bold"),
+        ).pack(anchor="w", padx=24, pady=(0, 8))
+
+        self._history_container = ctk.CTkFrame(self, fg_color="transparent")
+        self._history_container.pack(fill="x", padx=24, pady=(0, 24))
 
         # ── CSV Export ────────────────────────────────────────────────────────
         ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
@@ -163,6 +174,7 @@ class DashboardView(ctk.CTkScrollableFrame):
             self._render_empty()
             self._render_estimation(None, expenses)
             self._render_annual()
+            self._render_snapshot_history()
             self._render_investment_summary(None)
             return
 
@@ -190,6 +202,7 @@ class DashboardView(ctk.CTkScrollableFrame):
 
         self._render_estimation(latest, expenses)
         self._render_annual()
+        self._render_snapshot_history()
         self._render_investment_summary(latest)
         self._render_breakdown(latest, prev)
 
@@ -199,8 +212,12 @@ class DashboardView(ctk.CTkScrollableFrame):
         for w in self._reminder_frame.winfo_children():
             w.destroy()
 
+        if self._reminder_frame.winfo_manager() == "pack":
+            self._reminder_frame.pack_forget()
+
         today = date.today()
         if today.day <= 20:
+            self._header.pack_configure(pady=(16, 2))
             return
 
         if today.month == 1:
@@ -212,15 +229,18 @@ class DashboardView(ctk.CTkScrollableFrame):
         # is after the earliest recorded snapshot (don't remind for months before data)
         earliest = get_earliest_snapshot()
         if earliest is None:
+            self._header.pack_configure(pady=(16, 2))
             return  # No snapshots at all — no reminder
 
         e_year, e_month = earliest
         prev_as_int  = prev_year * 12 + prev_month
         first_as_int = e_year * 12 + e_month
         if prev_as_int <= first_as_int:
+            self._header.pack_configure(pady=(16, 2))
             return  # Previous month is at or before the first snapshot — don't remind
 
         if get_snapshot(prev_year, prev_month) is not None:
+            self._header.pack_configure(pady=(16, 2))
             return
 
         month_name = MONTHS[prev_month - 1]
@@ -250,6 +270,10 @@ class DashboardView(ctk.CTkScrollableFrame):
             inner, text="Go to Snapshot", width=130,
             command=go_to_snapshot,
         ).pack(side="right")
+
+        # Pack reminder above the header and tighten the header's top padding
+        self._reminder_frame.pack(fill="x", padx=24, pady=(16, 0), before=self._header)
+        self._header.pack_configure(pady=(8, 2))
 
     # ── Extra cards (Investment Portfolio + Expected Income) ──────────────────
 
@@ -357,19 +381,12 @@ class DashboardView(ctk.CTkScrollableFrame):
         daily_buffer   = float(get_setting("daily_buffer") or "20.0")
         remaining_days = last_day - today.day
 
-        remaining_fx: list = []
-        for e in expenses:
-            d = e["day_of_month"]
-            if last_day < 31 and d == 31:
-                remaining_fx.append(e)
-            elif d > today.day:
-                remaining_fx.append(e)
-
-        remaining_fx_total = sum(e["amount"] for e in remaining_fx)
-        buffer_cost        = remaining_days * daily_buffer
-        total_costs        = buffer_cost + remaining_fx_total
-        estimated_eom      = latest["total"] - total_costs
-        est_change         = estimated_eom - latest["total"]
+        all_fx      = list(expenses)
+        fx_total    = sum(e["amount"] for e in all_fx)
+        buffer_cost = remaining_days * daily_buffer
+        total_costs = buffer_cost + fx_total
+        estimated_eom = latest["total"] - total_costs
+        est_change    = estimated_eom - latest["total"]
 
         card  = ctk.CTkFrame(self._estimation_container)
         card.pack(fill="x")
@@ -435,18 +452,17 @@ class DashboardView(ctk.CTkScrollableFrame):
         expenses_hdr = ctk.CTkFrame(inner, fg_color="transparent")
         expenses_hdr.pack(fill="x", pady=(2, 0))
         ctk.CTkLabel(expenses_hdr,
-                     text=f"Remaining fixed expenses  ({len(remaining_fx)} items)",
+                     text=f"Fixed expenses this month  ({len(all_fx)} items)",
                      anchor="w", text_color="gray",
                      font=ctk.CTkFont(size=12)).pack(side="left")
-        ctk.CTkLabel(expenses_hdr, text=f"–{fmt_eur(remaining_fx_total)}",
+        ctk.CTkLabel(expenses_hdr, text=f"–{fmt_eur(fx_total)}",
                      anchor="e", text_color=_RED,
                      font=ctk.CTkFont(size=12)).pack(side="right")
 
-        for e in remaining_fx:
-            day_label = (
-                "end of month" if (e["day_of_month"] == 31 and last_day < 31)
-                else f"day {e['day_of_month']}"
-            )
+        for e in all_fx:
+            d     = e["day_of_month"]
+            eff_d = effective_charge_day(today.year, today.month, d, last_day)
+            day_label = "end of month" if (d == 31 and last_day < 31) else f"day {eff_d}"
             est_row(f"  · {e['name']}  ({day_label})",
                     f"–{fmt_eur(e['amount'])}", _RED, small=True)
 
@@ -540,6 +556,69 @@ class DashboardView(ctk.CTkScrollableFrame):
 
         ctk.CTkFrame(self._investment_container, height=8,
                      fg_color="transparent").pack()
+
+    # ── Snapshot History ──────────────────────────────────────────────────────
+
+    def _render_snapshot_history(self):
+        for w in self._history_container.winfo_children():
+            w.destroy()
+
+        all_snaps = get_all_snapshots()
+        if not all_snaps:
+            ctk.CTkLabel(
+                self._history_container,
+                text="No snapshots yet.",
+                text_color="gray",
+            ).pack(anchor="w")
+            return
+
+        existing = {(s["year"], s["month"]) for s in all_snaps}
+        years    = sorted({s["year"] for s in all_snaps})
+
+        card  = ctk.CTkFrame(self._history_container)
+        card.pack(fill="x")
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=12)
+
+        # Month header row
+        hdr = ctk.CTkFrame(inner, fg_color="transparent")
+        hdr.pack(anchor="w", fill="x", pady=(0, 4))
+        ctk.CTkLabel(hdr, text="", width=52).pack(side="left")  # year column spacer
+        for m in range(1, 13):
+            ctk.CTkLabel(
+                hdr, text=MONTHS[m - 1][:3], width=54, anchor="center",
+                text_color="gray", font=ctk.CTkFont(size=11),
+            ).pack(side="left")
+
+        # One row per year
+        for year in years:
+            row = ctk.CTkFrame(inner, fg_color="transparent")
+            row.pack(anchor="w", fill="x", pady=1)
+            ctk.CTkLabel(
+                row, text=str(year), width=52, anchor="w",
+                font=ctk.CTkFont(size=12),
+            ).pack(side="left")
+            for m in range(1, 13):
+                if (year, m) in existing:
+                    ctk.CTkButton(
+                        row, text="✓", width=54, height=28,
+                        fg_color=("gray85", "gray25"),
+                        hover_color=("gray70", "gray35"),
+                        text_color=("gray20", "gray90"),
+                        font=ctk.CTkFont(size=12),
+                        command=lambda y=year, mo=m: self._go_to_snapshot(y, mo),
+                    ).pack(side="left", padx=0)
+                else:
+                    ctk.CTkLabel(
+                        row, text="·", width=54, anchor="center",
+                        text_color="gray", font=ctk.CTkFont(size=12),
+                    ).pack(side="left")
+
+    def _go_to_snapshot(self, year: int, month: int):
+        from views.snapshot_entry import SnapshotEntryView
+        SnapshotEntryView._pending_period = (year, month)
+        if self._navigate:
+            self._navigate("snapshot")
 
     # ── Annual overview ───────────────────────────────────────────────────────
 
@@ -641,7 +720,7 @@ class DashboardView(ctk.CTkScrollableFrame):
             row.pack(anchor="w", fill="x", pady=2)
             curr = latest["balances"].get(name, 0.0)
 
-            name_label = name + (" ★" if name in inv_names else "")
+            name_label = name + (" *" if name in inv_names else "")
             ctk.CTkLabel(row, text=name_label, width=W_NAME, anchor="w").pack(side="left")
 
             if prev:
@@ -659,7 +738,7 @@ class DashboardView(ctk.CTkScrollableFrame):
         if inv_names:
             ctk.CTkLabel(
                 self._breakdown_frame,
-                text="★ Investment account (excluded from Net Worth)",
+                text="* Investment account (excluded from Net Worth)",
                 text_color="gray", font=ctk.CTkFont(size=11),
             ).pack(anchor="w", pady=(6, 0))
 

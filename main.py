@@ -1,12 +1,13 @@
 import customtkinter as ctk
 import darkdetect
 
-from database.db import init_db
+from database.db import init_db, get_setting
 from views.dashboard import DashboardView
 from views.snapshot_entry import SnapshotEntryView
 from views.expenses import ExpensesView
 from views.charts import ChartsView
 from views.notes import NotesView
+from views.settings import SettingsView
 from views.help import HelpView
 
 
@@ -17,11 +18,19 @@ class App(ctk.CTk):
         self.geometry("1100x700")
         self.minsize(900, 600)
 
-        ctk.set_appearance_mode("dark" if darkdetect.isDark() else "light")
+        init_db()
+
+        # Apply saved appearance mode (fallback: follow system)
+        saved_mode = get_setting("appearance_mode") or "System"
+        if saved_mode == "System":
+            ctk.set_appearance_mode("dark" if darkdetect.isDark() else "light")
+        else:
+            ctk.set_appearance_mode(saved_mode.lower())
+
         ctk.set_default_color_theme("blue")
 
-        init_db()
         self._build_layout()
+        self._bind_global_scroll()
         self.show_view("dashboard")
 
     def _build_layout(self):
@@ -35,19 +44,40 @@ class App(ctk.CTk):
             font=ctk.CTkFont(size=17, weight="bold"),
         ).pack(pady=(28, 20), padx=16)
 
-        nav = [
+        # Main navigation tabs (top section)
+        nav_top = [
             ("Dashboard",        "dashboard"),
             ("Monthly Snapshot", "snapshot"),
             ("Budget",           "expenses"),
             ("Charts",           "charts"),
             ("Notes",            "notes"),
-            ("Help",             "help"),
         ]
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
-        for label, key in nav:
+        for label, key in nav_top:
             btn = ctk.CTkButton(
                 self.sidebar, text=label, anchor="w",
                 fg_color="transparent",
+                text_color=("gray10", "gray90"),
+                command=lambda k=key: self.show_view(k),
+            )
+            btn.pack(padx=12, pady=3, fill="x")
+            self._nav_buttons[key] = btn
+
+        # Divider between main tabs and utility tabs
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=("gray75", "gray35")).pack(
+            fill="x", padx=12, pady=(12, 8)
+        )
+
+        # Utility tabs (bottom section)
+        nav_bottom = [
+            ("Settings", "settings"),
+            ("Help",     "help"),
+        ]
+        for label, key in nav_bottom:
+            btn = ctk.CTkButton(
+                self.sidebar, text=label, anchor="w",
+                fg_color="transparent",
+                text_color=("gray10", "gray90"),
                 command=lambda k=key: self.show_view(k),
             )
             btn.pack(padx=12, pady=3, fill="x")
@@ -64,8 +94,31 @@ class App(ctk.CTk):
             "expenses":  ExpensesView,
             "charts":    ChartsView,
             "notes":     NotesView,
+            "settings":  SettingsView,
             "help":      HelpView,
         }
+
+    def _bind_global_scroll(self):
+        def on_scroll(event):
+            w = event.widget
+            while w is not None:
+                if isinstance(w, ctk.CTkScrollableFrame):
+                    if event.widget is getattr(w, "_parent_canvas", None):
+                        return
+                    try:
+                        if hasattr(event, "delta") and event.delta:
+                            w._parent_canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+                        elif event.num == 4:
+                            w._parent_canvas.yview_scroll(-1, "units")
+                        elif event.num == 5:
+                            w._parent_canvas.yview_scroll(1, "units")
+                    except Exception:
+                        pass
+                    return
+                w = getattr(w, "master", None)
+        self.bind_all("<MouseWheel>", on_scroll)
+        self.bind_all("<Button-4>", on_scroll)
+        self.bind_all("<Button-5>", on_scroll)
 
     def show_view(self, name: str):
         if name not in self._views:

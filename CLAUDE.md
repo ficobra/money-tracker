@@ -4,16 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-A Python desktop GUI application for personal monthly finance tracking, built with CustomTkinter and Matplotlib. The app is for personal use only.
+A Python desktop GUI application for monthly personal finance tracking, built with CustomTkinter and Matplotlib. Designed for general use.
 
 ### Core Concept
 The app uses a "snapshot" model — the user enters account balances once per month (at the end of the month), and the app calculates the difference between months to determine net worth change. No individual transaction tracking.
-
-### User & Context
-- User lives in Austria, earns income in EUR
-- Two income sources: primary job (fixed salary) and secondary job (basketball statistics via FibaLiveStats/Synergy, paid in cash or bank transfer)
-- Accounts to track: main bank account, Revolut, cash, Flatex (ETF/stock portfolio)
-- Monthly standing order into ETFs via Flatex
 
 ## Features
 
@@ -23,113 +17,94 @@ The app uses a "snapshot" model — the user enters account balances once per mo
 - All account fields are dynamic — user can add/remove accounts freely
 - **Account name editing**: A single "Edit Accounts" toggle button sits alongside "+ Add Account". When ON (shows "Done"): all name fields become editable entries. When OFF: all fields return to read-only labels. Clicking "+ Add Account" auto-enables edit mode for all rows before adding the new row. The toggle resets to OFF on every period change (`_load_existing`).
 - **Account persistence**: When a snapshot is saved with any new account, that account is stored in the `accounts` table. When the user navigates to any unsaved current or future month, all known accounts are pre-populated (empty balance). Past unsaved months fall back to `_DEFAULT_ACCOUNTS`.
-- **Future month warning**: Saving a snapshot for a month that hasn't started yet shows a confirmation dialog: "You are entering data for a future month (Month Year). This month has not started yet. Do you want to continue?" with Continue/Cancel buttons.
+- **Future month warning**: Saving a snapshot for a month that hasn't started yet shows a confirmation dialog with Continue/Cancel buttons.
 - **Remove account confirmation**: Clicking × on an account row shows a confirmation dialog before removing it (no "This cannot be undone." suffix).
-- **Post-save deduction dialog**: After saving a snapshot for the current mid-month, a modal dialog appears asking whether to deduct estimated remaining costs from a non-investment account. Includes an "Extra one-time cost (EUR)" input that adds to the grand total dynamically. If the selected account has insufficient funds, a second warning dialog is shown before proceeding. On confirm, the selected account's balance is reduced, the snapshot is re-saved, and status bar updates with the adjusted net worth.
-- **Delete Snapshot button**: A red "Delete Snapshot" button (border style) appears below "Save Snapshot" only when a snapshot exists for the selected period. Clicking shows a confirmation dialog. On confirm, calls `delete_snapshot(year, month)` and reloads the view.
-- **× remove buttons**: Only visible when "Edit Accounts" mode is active (i.e., the "Done" button is showing). Hidden otherwise. Rendered inside `edit_controls` frame via `_refresh_edit_controls(row)`.
-- **Investment accounts**: In "Edit Accounts" mode, each row shows an "INV" checkbox (hidden in normal mode; timing fix: `_editing_accounts=False` is set BEFORE creating rows in `_load_existing()`). Marking an account as INV excludes it from Net Worth; it's shown separately as "Investment Portfolio". Investment accounts have ONE balance field "Balance (EUR)" — no monthly deposit tracking. `_refresh_edit_controls(row)` uses `pack()`/`pack_forget()` with a geometry-manager check to avoid empty frames causing layout spacing issues.
-- **Net Worth vs Investment Portfolio**: `total` in snapshot dicts = sum of non-investment accounts (Net Worth). `investment_total` = sum of investment accounts. Both displayed in the Snapshot and Dashboard.
-- **refresh() method**: `SnapshotEntryView` has a `refresh()` method that checks `SnapshotEntryView._pending_period` (class variable). If set by another view (e.g., Dashboard reminder), it pre-selects that period and clears the variable.
+- **Post-save deduction dialog**: After saving a snapshot mid-month, a modal dialog appears asking whether to deduct estimated remaining costs from a non-investment account. Includes an "Extra one-time cost (EUR)" input. On confirm, the account balance is reduced, the snapshot is re-saved, and the status bar updates.
+- **Layout order** in `_build()`: period selector → account rows → Add/Edit buttons → divider → totals → Income This Month → Save Snapshot → Delete Snapshot → estimation card
+- **Delete Snapshot button**: A red "Delete Snapshot" button (border style) appears below "Save Snapshot" only when a snapshot exists for the selected period.
+- **× remove buttons**: Only visible when "Edit Accounts" mode is active. Rendered inside `edit_controls` frame via `_refresh_edit_controls(row)`.
+- **Investment accounts**: In "Edit Accounts" mode, each row shows an "INV" checkbox. Marking an account as INV excludes it from Net Worth; it's shown separately as "Investment Portfolio". `_editing_accounts=False` is set BEFORE creating rows in `_load_existing()` (timing fix).
+- **Income This Month card**: Shown in Monthly Snapshot ABOVE the Save Snapshot button when income sources have that month in their `active_months`. User enters actual amounts received; saved to `snapshot_income` table. `_render_income_section()` converts each `sqlite3.Row` to `dict` before calling `.get()`.
+- **Income amount validation**: 0.00 and empty fields are valid (treated as 0.00); only negative values are rejected.
 
 ### Budget (tab)
-The "Budget" tab (renamed from "Expenses") is split into three sections:
+The "Budget" tab is split into two sections:
 
 **Fixed Monthly Expenses**
 - User can define recurring monthly expenses with name, amount, and day of month
-- Stored permanently; no need to re-enter each month
-- **Edit mode per section**: "Edit" toggle button in section header. When ON (shows "Done"): each row shows an "Edit" button (opens inline form) and a "×" button (confirm dialog → delete). When OFF: rows are display-only.
-- `_expenses_edit_mode: bool` tracks state; `_expenses_toggle_btn` is the toggle button ref.
-- Deleting shows: "Delete [name]? This cannot be undone." with Delete/Cancel buttons
+- **Batch-save edit mode**: "Edit" toggle in section header. When ON (shows "Done"): ALL rows immediately show as entry widgets simultaneously. "×" button appears per row for deletion (with confirmation). Clicking "Done" validates + saves all changed rows at once. If validation fails, an error label appears next to the "Done" button and edit mode stays active.
+- `_expenses_edit_mode: bool` and `_expenses_row_vars: dict[int, dict]` (id → {day, name, amount StringVars})
+- `_save_all_expenses()` iterates `_expenses_row_vars`, validates, calls `update_expense()` for each
 
 **Monthly Income**
-- Stored in `recurring_income` table with `income_type` and `active_months` columns
-- Three income types:
-  - `fixed` — same amount every month. Has a Day field (0 = variable timing).
-  - `seasonal` — active only in selected months. `active_months` = comma-separated month numbers (e.g. "1,3,6"). Amount = expected/base amount per active month.
-  - `variable` — appears in Monthly Snapshot as reminder; amount entered per-month via `snapshot_income` table.
-- Add form: type segmented button (Fixed / Seasonal / Variable). Seasonal shows 12 month checkboxes. Fixed shows Day field. Seasonal/Variable hide Day field.
-- **Edit mode per section**: same "Edit"/"Done" toggle pattern as Fixed Expenses (`_income_edit_mode`, `_income_toggle_btn`)
-- Each income row shows: Day, Name, Type (with active months for Seasonal), Amount
-- Total = sum of all income `amount` fields; shown as "Expected monthly income:"
-- Dashboard: "EXPECTED MONTHLY INCOME" card + "Spending Budget" (income − fixed expenses)
+- Stored in `recurring_income` table; `income_type` column exists in DB but UI no longer uses it (always stored as "fixed")
+- `active_months`: comma-separated month numbers (e.g. "1,3,6") or NULL = active every month
+- Add form: Name + EUR + 12 month checkboxes (all checked by default). If all 12 checked, `active_months = NULL`.
+- **Batch-save edit mode**: same "Edit"/"Done" toggle pattern. In edit mode: name entry + amount entry + 12 month checkboxes per row + "×" button. Done saves all changes.
+- `_income_edit_mode: bool` and `_income_row_vars: dict[int, dict]` (id → {name, amount StringVars + months dict[int, BoolVar]})
+- `_save_all_income()` validates all rows, calls `update_income(iid, name, amount, 0, "fixed", active_months_str)`
+- Display row: Name | Active Months (text) | Amount. `_format_active_months()` returns "All months" or "Jan, Mar, Jun" etc.
+- Total = sum of all income amounts; shown as "Expected monthly income:"
+- Daily Spending Allowance has been **moved to Settings tab** — no longer in Budget tab
 
 **Snapshot income logging** (in Monthly Snapshot view)
-- `snapshot_income` table: `(year, month, income_id, actual_amount)` — stores per-month actual income for seasonal/variable sources
-- When viewing any month in Monthly Snapshot, `_render_income_section()` finds all Seasonal income active for that month and all Variable income, and shows an "INCOME THIS MONTH" card with entry fields pre-filled from `get_snapshot_income(year, month)` or the base amount
+- `snapshot_income` table: `(year, month, income_id, actual_amount)` — stores per-month actual income
+- `_render_income_section()` finds all income sources where `active_months` is NULL or contains current month
 - On Save Snapshot, `set_snapshot_income()` is called for each entry in `_income_amount_vars`
-
-**Variable Expenses**
-- Contains the **Daily Spending Allowance** setting, stored in `settings` table under key `daily_buffer`
-- Shown as an editable EUR/day field with a large display value and Edit/Save/Cancel pattern
-- Used for mid-month estimation calculations
 
 ### Mid-Month Estimation
 - Shown in both Monthly Snapshot view and Dashboard when: selected period = current month, today is not the last day of the month, and no snapshot has been saved yet for this month
-- Calculates estimated spend until month end:
-  - **Buffer cost**: `remaining_days × daily_buffer` (remaining_days = last_day − today.day)
-  - **Remaining fixed expenses**: expenses with `day_of_month > today.day`
-  - **Day 31 special case**: expenses with `day_of_month = 31` are always included as remaining when the current month has fewer than 31 days (they represent end-of-month charges)
-- Shows an itemized list of remaining fixed expenses with name, day, and amount
-- Estimated end-of-month net worth = current entered net worth total (non-investment) − buffer cost − remaining fixed expenses total
-- **Daily buffer** (default: 20 EUR/day) is stored in the `settings` DB table under key `daily_buffer` and is editable directly in the UI via an Edit button in both the Monthly Snapshot and Dashboard estimation cards
-- In Monthly Snapshot view: the estimated EOM net worth updates live as the user types balances
-- In Monthly Snapshot view: a checkbox "Show adjusted net worth alongside actual total" — when ticked, shows `current_total − est_total_cost` next to the actual total row; driven by `_include_estimation_var` (CTkBooleanVar)
-
-### Visualizations (Charts tab)
-Three charts, always in this order:
-
-**Net Worth Over Time** (line chart) — always shown when ≥2 snapshots; uses `total` (non-investment)
-
-**Monthly Net Worth Change** (bar chart) — always shown when ≥2 snapshots; green = positive, red = negative. Labels use `_annotate_bars()` with `ax.margins(y=0.30)` so value labels never overlap x-axis tick labels.
-
-**Account Tracker** (line chart, dynamic) — shown when ≥1 snapshot. User selects one or more accounts via checkboxes (populated from `get_all_accounts()`); chart shows their balance over time. Selection is preserved across `refresh()` calls via `_tracker_vars: dict[str, BooleanVar]`. Chart is redrawn live on each checkbox toggle via `_on_tracker_change()` → `_draw_tracker_chart()`. Previous figure is cleaned up before drawing the new one.
+- **Buffer cost**: `remaining_days × daily_buffer`; **Fixed expenses this month**: ALL fixed expenses for the entire month (no "remaining" filter — all are shown and subtracted). Formula: `estimated_eom = latest_nw - fx_total - buffer_cost`
+- **Banking day logic**: `effective_charge_day(year, month, day_of_month, last_day)` in `utils.py`. Saturday → following Monday (+2), Sunday → following Monday (+1), clamped to last_day. Applied to day labels in estimation cards (both dashboard.py and snapshot_entry.py). Day-31 special case: always shown in months shorter than 31 days (label: "end of month").
+- **Post-save deduction dialog** (`_maybe_show_deduction_dialog`): still filters to REMAINING expenses only (effective_charge_day > today.day) since it's for balance adjustment after saving mid-month
+- **Daily buffer** (default: 20 EUR/day) is editable directly in the estimation card (Edit button) and from the Settings tab; stored in `settings` table under key `daily_buffer`
+- In Monthly Snapshot: checkbox "Show adjusted net worth alongside actual total" driven by `_include_estimation_var`
 
 ### Dashboard
-- **Metric cards** (always shown): NET WORTH (non-investment), MONTHLY CHANGE, FIXED EXPENSES, DISPOSABLE INCOME
-- **Extra cards** (conditional): INVESTMENT PORTFOLIO (when investment accounts exist), EXPECTED MONTHLY INCOME (when income sources exist)
-- **Reminder banner**: if `today.day > 20` and no snapshot for previous month → yellow banner at top with "Go to Snapshot" button. Button sets `SnapshotEntryView._pending_period = (prev_year, prev_month)` before calling navigate callback. Reminder only shown when `get_earliest_snapshot()` is not None AND the previous month is strictly after the earliest snapshot (no reminders for months before data started).
-- **navigate callback**: `DashboardView.__init__` accepts `navigate=None`. `main.py` passes `navigate=self.show_view` via lambda in `_view_classes`.
+- **Metric cards**: NET WORTH (non-investment), MONTHLY CHANGE, FIXED EXPENSES, DISPOSABLE INCOME
+- **Extra cards** (conditional): INVESTMENT PORTFOLIO (when investment accounts exist), EXPECTED MONTHLY INCOME (when income exists)
+- **Reminder banner**: if `today.day > 20` and no snapshot for previous month → yellow banner. Only shown when `get_earliest_snapshot()` is not None AND previous month is strictly after the earliest snapshot (no reminders before data started).
+- **Snapshot History**: compact year × month grid. ✓ = saved snapshot (clickable button → navigates to Monthly Snapshot for that period). · = no snapshot. `_render_snapshot_history()` calls `get_all_snapshots()`. `_go_to_snapshot(year, month)` sets `SnapshotEntryView._pending_period` and calls `navigate("snapshot")`.
 - **Annual Overview**: best/worst/avg monthly change and total saved for current year
-- **Investment Portfolio section**: shown when investment accounts exist; total current value + per-account breakdown
-- **Account Breakdown**: table of latest vs prev snapshot balances; investment accounts marked with ★
-- **Export to CSV**: button at bottom; `filedialog.asksaveasfilename`; exports Year/Month/Account/Balance/Is_Investment rows for all snapshots
+- **Investment Portfolio section**: shown when investment accounts exist
+- **Account Breakdown**: latest vs prev snapshot balances; investment accounts marked with `*` (asterisk); footnote: "* Investment account (excluded from Net Worth)"
+- **Dashboard layout order**: metric cards → extra cards → estimation → Annual Overview → Investment Portfolio → Account Breakdown → Snapshot History → CSV Export
+- **Export to CSV**: button at bottom; exports Year/Month/Account/Balance/Is_Investment rows
 
-### Annual Overview (on Dashboard)
-- Best and worst month
-- Average monthly change
-- Total saved (sum of positive months)
-- Uses `total` (non-investment) for all calculations
+### Visualizations (Charts tab)
+- **Net Worth Over Time** (line chart) — ≥2 snapshots
+- **Monthly Net Worth Change** (bar chart) — ≥2 snapshots; green/red bars; `ax.margins(y=0.30)`
+- **Account Tracker** (line chart, dynamic) — ≥1 snapshot; accounts shown as solid lines with `_tracker_vars: dict[str, BooleanVar]`; income sources shown as dashed lines with `_income_tracker_vars: dict[int, BooleanVar]` and `_income_names: dict[int, str]`; income data loaded via `get_snapshot_income(year, month)` for each snapshot into `_income_snap_data`
+- **Investment Performance** (line chart) — when investment data exists
 
 ### Notes (tab)
-Two sections:
+- **My Notes**: free-text CTkTextbox; saved to `settings.my_notes`
+- **Debt / Credit Notes**: each note has description, amount, direction ("they_owe"/"i_owe"), date; summary cards show net position; not included in any calculations
 
-**My Notes**
-- Free-text multiline area (CTkTextbox) for anything the user wants to write
-- Saved persistently to the `settings` table under key `my_notes`
-- "Save Notes" button with a brief "Saved." confirmation
+### Settings (tab)
+- **Daily Spending Allowance**: editable EUR/day field (Edit/Save/Cancel); stored as `settings.daily_buffer`
+- **Appearance**: segmented button (System / Light / Dark); calls `ctk.set_appearance_mode()`; saved to `settings.appearance_mode`; applied on app startup in `main.py` after `init_db()`
+- **Backup Data**: `filedialog.asksaveasfilename`; copies `DB_PATH` via `shutil.copy2`
+- **Restore Data**: `filedialog.askopenfilename`; confirmation dialog; copies file over `DB_PATH`; calls `self.winfo_toplevel().destroy()`
+- **Reset All Data**: user must type "DELETE" in confirmation dialog; calls `reset_all_data()` from db.py; closes app. `reset_all_data()` deletes all rows from: snapshot_income, snapshot_balances, snapshots, accounts, fixed_expenses, notes, recurring_income; resets daily_buffer to 20.0, my_notes to ''.
 
-**Debt / Credit Notes**
-- Simple debt tracking (not included in any calculations)
-- Each note has: description, amount, direction ("they_owe" / "i_owe"), date added
-- Summary cards show total owed to user vs. total user owes
-- Example: "Marko owes me 50 EUR" or "I owe Ana 20 EUR"
+### Sidebar Layout (main.py)
+- **Top group** (main tabs): Dashboard, Monthly Snapshot, Budget, Charts, Notes
+- **Divider line** (1px CTkFrame, gray)
+- **Bottom group** (utility): Settings, Help
+- `_nav_buttons` dict covers all 7 entries for highlight management
+- All nav buttons have `text_color=("gray10", "gray90")` for correct contrast in both light and dark mode
 
 ### Currency Formatting
-- All monetary display values use European format: `€1.234,56` (period = thousands separator, comma = decimal)
-- Helper functions in `utils.py`: `fmt_eur(value)` and `fmt_eur_signed(value)` (with explicit +/- sign)
-- Input fields still accept plain numbers (e.g. `1234.56`)
-- Chart y-axis labels use `_eu_axis_fmt(v)` (whole numbers only, e.g. `€1.234`)
-
-### Data Management (Help tab)
-- **Backup**: `filedialog.asksaveasfilename`, copies `DB_PATH` via `shutil.copy2`
-- **Restore**: `filedialog.askopenfilename`, confirmation dialog, copies file over `DB_PATH`, then `self.winfo_toplevel().destroy()` to close the app
+- All display values use European format: `€1.234,56`
+- `fmt_eur(value)` and `fmt_eur_signed(value)` in `utils.py`
+- Chart y-axis uses `_eu_axis_fmt(v)`
 
 ## Environment
 
 - Python 3.13 virtual environment at `./venv/`
 - Activate with: `source venv/bin/activate`
-- Install dependencies: `pip install -r requirements.txt` (once created)
+- Run: `python main.py`
 
 ## Key Dependencies (already installed in venv)
 
@@ -139,58 +114,58 @@ Two sections:
 - `pillow` — image handling
 - `darkdetect` — automatic dark/light mode detection
 
-## Running the App
-```bash
-source venv/bin/activate
-python main.py
-```
-
 ## Architecture
-
-- Entry point: `main.py`
-- GUI components: `customtkinter` (CTk widgets, not raw Tkinter)
-- Charts: `matplotlib` embedded in the CTk window
-- Database: SQLite (single local file, no server needed)
-- Dark mode support via `darkdetect`
 
 ### File Structure
 ```
 money-tracker/
-├── main.py                  — App entry, sidebar nav, show_view() passes navigate to Dashboard
-├── utils.py                 — fmt_eur(), fmt_eur_signed() for European currency display
+├── main.py                  — App entry, sidebar nav (top/bottom groups), appearance init, global scroll
+├── utils.py                 — fmt_eur(), fmt_eur_signed(), center_on_parent(), effective_charge_day()
 ├── database/
-│   ├── db.py
+│   ├── db.py                — All DB ops; settings keys: daily_buffer, my_notes, appearance_mode
 │   └── tracker.db
 ├── views/
-│   ├── dashboard.py
-│   ├── snapshot_entry.py
-│   ├── expenses.py
-│   ├── charts.py
-│   ├── notes.py
-│   └── help.py
+│   ├── dashboard.py         — Dashboard; Snapshot History grid; reminder banner
+│   ├── snapshot_entry.py    — Monthly Snapshot; income section (active_months based)
+│   ├── expenses.py          — Budget tab; batch-save edit mode for both sections
+│   ├── charts.py            — Charts/visualizations
+│   ├── notes.py             — My Notes + Debt/Credit Notes
+│   ├── settings.py          — Settings tab (allowance, appearance, backup/restore, reset)
+│   └── help.py              — Help tab (generic, no personal references)
 └── requirements.txt
 ```
 
+## Key DB Functions
+- `get_snapshot(year, month)` → dict[name→balance] or None
+- `get_snapshot_invested(year, month)` → dict[name→invested_amount]
+- `save_snapshot(year, month, balances, invested_amounts=None)` → total_snapshots count
+- `delete_snapshot(year, month)` → deletes snapshot + cascades to balances
+- `get_all_accounts()` → list[str] (insertion order)
+- `get_all_accounts_with_flags()` → list[dict] with name + is_investment bool
+- `set_account_investment(name, is_investment)` → updates accounts.is_investment
+- `get_all_expenses()` → list of Row objects (ordered by day_of_month, name)
+- `get_setting(key)` / `set_setting(key, value)` — settings keys: daily_buffer, my_notes, appearance_mode
+- `get_all_income()` → list of Row (id, name, amount, day_of_month, income_type, active_months)
+- `add_income(name, amount, day, income_type, active_months)` / `update_income(id, ...)` / `delete_income(id)`
+- `get_snapshot_income(year, month)` → dict[income_id→actual_amount]
+- `set_snapshot_income(year, month, income_id, actual_amount)` → upsert
+- `get_earliest_snapshot()` → (year, month) or None
+- `reset_all_data()` → deletes all user data, resets settings to defaults
+- DB migrations in `init_db()` handle all schema additions for existing databases
+
 ## Important Rules for Claude
 - Always use CTk widgets (customtkinter), never raw Tkinter
-- All monetary values stored and displayed in EUR
-- **Currency display**: always use `fmt_eur()` / `fmt_eur_signed()` from `utils.py` — never use `f"€{value:,.2f}"` directly in views
+- All monetary values stored and displayed in EUR; always use `fmt_eur()` / `fmt_eur_signed()` from `utils.py`
 - Dynamic fields — avoid hardcoded account names or expense categories
-- First month snapshot shows no calculations, just confirms data saved
-- Mid-month estimation uses configurable daily buffer (default 20 EUR/day, stored in `settings` table) and itemized remaining fixed expenses; day-31 expenses always count as remaining in months shorter than 31 days
-- Confirmation dialogs use a modal pattern: `result = [False]`, create a top-level dialog with `grab_set()` + `wait_window()`, buttons set `result[0]` then `dialog.destroy()`, return `result[0]`
-- Modal dialogs (deduction dialog) use `result: list = [False, "", 0.0]` with same pattern
-- `get_all_accounts()` in `db.py` returns all accounts ever saved, ordered by insertion (`ORDER BY id`)
-- `get_all_accounts_with_flags()` returns `list[dict]` with `name` and `is_investment` bool
-- `set_account_investment(name, is_investment)` updates the `accounts.is_investment` flag
-- `save_snapshot(year, month, balances)` — no longer takes `invested_amounts`; investment tracking is done via `is_investment` flag on accounts table only
-- `delete_snapshot(year, month)` — deletes snapshot and cascades to balances
-- `_build_snapshot_dict` in db.py: `total` = non-investment sum, `investment_total` = investment sum, `investment_balances` = {name: balance} for investment accounts
-- DB migrations in `init_db()` add `is_investment` to `accounts`, `invested_amount` to `snapshot_balances`, and `income_type`/`active_months` to `recurring_income` for existing databases
-- `get_earliest_snapshot()` — returns `(year, month)` of the oldest snapshot, or None
-- `get_snapshot_income(year, month)` → `dict[int, float]` (income_id → actual_amount)
-- `set_snapshot_income(year, month, income_id, actual_amount)` — upserts a per-month actual income entry
-- `add_income(name, amount, day, income_type, active_months)` / `update_income(...)` — include income_type ('fixed'/'seasonal'/'variable') and active_months (comma-separated month numbers or None)
-- `snapshot_income` table: `(year, month, income_id, actual_amount)` UNIQUE on (year, month, income_id)
-- Recurring income: `get_all_income()`, `add_income(name, amount, day)`, `update_income(id, name, amount, day)`, `delete_income(id)` — stored in `recurring_income` table, day=0 means Variable
-- **Always update `views/help.py`** when adding or modifying features — the Help tab is the user-facing documentation for the entire app
+- `sqlite3.Row` does NOT support `.get()` — always convert to `dict(row)` before calling `.get()`
+- Confirmation dialogs: `result = [False]`, `CTkToplevel` + `grab_set()` + `wait_window()`; buttons set `result[0]` then `dialog.destroy()`; always call `center_on_parent(dialog, self, width, height)` BEFORE `grab_set()` so dialogs appear centered on the main window
+- Mid-month estimation: ALL fixed expenses are shown/subtracted (not just remaining). Day-31 expenses always included in months shorter than 31 days (shown as "end of month").
+- Banking day: use `effective_charge_day(year, month, day_of_month, last_day)` from `utils.py` for display labels. Post-save deduction dialog still filters to remaining expenses (eff_d > today.day).
+- Global scroll: `_bind_global_scroll()` in `App` (main.py) uses `bind_all("<MouseWheel>")` + `<Button-4/5>` to walk widget hierarchy and call `_parent_canvas.yview_scroll()` on the nearest CTkScrollableFrame ancestor
+- `get_all_accounts()` in db.py returns all accounts ever saved, ordered by insertion (`ORDER BY id`)
+- `_build_snapshot_dict`: `total` = non-investment sum, `investment_total` = investment sum
+- Income active_months: NULL or empty string = active every month; otherwise comma-separated month numbers
+- Daily Spending Allowance is in Settings tab only (not Budget tab)
+- Backup/Restore is in Settings tab only (not Help tab)
+- **Always update `views/help.py`** when adding or modifying features — the Help tab is the user-facing documentation
+- Help tab must be generic — no personal references (no specific account names, specific income sources, or specific locations)

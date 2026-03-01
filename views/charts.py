@@ -3,7 +3,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 from matplotlib.ticker import FuncFormatter
 
-from database.db import get_all_snapshots, get_all_accounts
+from database.db import get_all_snapshots, get_all_accounts, get_all_income, get_snapshot_income
 from utils import fmt_eur, fmt_eur_signed
 
 _MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -59,6 +59,9 @@ class ChartsView(ctk.CTkScrollableFrame):
         self._tracker_figure: Figure | None = None
         self._tracker_chart_frame: ctk.CTkFrame | None = None
         self._tracker_snap_data: list[dict] = []
+        self._income_tracker_vars: dict[int, ctk.BooleanVar] = {}
+        self._income_names: dict[int, str] = {}
+        self._income_snap_data: list[dict[int, float]] = []
         self._build()
 
     # ── Static skeleton ───────────────────────────────────────────────────────
@@ -226,35 +229,63 @@ class ChartsView(ctk.CTkScrollableFrame):
 
     def _render_tracker(self, snapshots: list[dict]):
         self._tracker_snap_data = snapshots
+
+        # Pre-load income data for all snapshots
+        self._income_snap_data = [
+            get_snapshot_income(s["year"], s["month"]) for s in snapshots
+        ]
+
         all_accounts = get_all_accounts()
+        all_income   = list(get_all_income())
 
         for acc in all_accounts:
             if acc not in self._tracker_vars:
                 self._tracker_vars[acc] = ctk.BooleanVar(value=False)
+
+        self._income_names = {i["id"]: i["name"] for i in all_income}
+        for i in all_income:
+            if i["id"] not in self._income_tracker_vars:
+                self._income_tracker_vars[i["id"]] = ctk.BooleanVar(value=False)
 
         card = self._make_card("Account Tracker")
 
         ctrl = ctk.CTkFrame(card, fg_color="transparent")
         ctrl.pack(fill="x", padx=16, pady=(0, 8))
 
-        if not all_accounts:
+        if not all_accounts and not all_income:
             ctk.CTkLabel(
                 ctrl, text="No accounts saved yet.", text_color="gray",
             ).pack(anchor="w", pady=(0, 8))
         else:
-            ctk.CTkLabel(
-                ctrl, text="Select accounts to chart:",
-                text_color="gray", font=ctk.CTkFont(size=12),
-            ).pack(anchor="w", pady=(0, 6))
+            if all_accounts:
+                ctk.CTkLabel(
+                    ctrl, text="Select accounts to chart:",
+                    text_color="gray", font=ctk.CTkFont(size=12),
+                ).pack(anchor="w", pady=(0, 6))
 
-            cb_frame = ctk.CTkFrame(ctrl, fg_color="transparent")
-            cb_frame.pack(anchor="w", pady=(0, 4))
-            for acc in all_accounts:
-                ctk.CTkCheckBox(
-                    cb_frame, text=acc,
-                    variable=self._tracker_vars[acc],
-                    command=self._on_tracker_change,
-                ).pack(side="left", padx=(0, 16))
+                cb_frame = ctk.CTkFrame(ctrl, fg_color="transparent")
+                cb_frame.pack(anchor="w", pady=(0, 4))
+                for acc in all_accounts:
+                    ctk.CTkCheckBox(
+                        cb_frame, text=acc,
+                        variable=self._tracker_vars[acc],
+                        command=self._on_tracker_change,
+                    ).pack(side="left", padx=(0, 16))
+
+            if all_income:
+                ctk.CTkLabel(
+                    ctrl, text="Select income sources to chart:",
+                    text_color="gray", font=ctk.CTkFont(size=12),
+                ).pack(anchor="w", pady=(6 if all_accounts else 0, 6))
+
+                inc_frame = ctk.CTkFrame(ctrl, fg_color="transparent")
+                inc_frame.pack(anchor="w", pady=(0, 4))
+                for inc in all_income:
+                    ctk.CTkCheckBox(
+                        inc_frame, text=inc["name"],
+                        variable=self._income_tracker_vars[inc["id"]],
+                        command=self._on_tracker_change,
+                    ).pack(side="left", padx=(0, 16))
 
         self._tracker_chart_frame = ctk.CTkFrame(card, fg_color="transparent")
         self._tracker_chart_frame.pack(fill="x", padx=16, pady=(0, 16))
@@ -276,13 +307,19 @@ class ChartsView(ctk.CTkScrollableFrame):
             self._tracker_figure.clear()
             self._tracker_figure = None
 
-        selected = [acc for acc, var in self._tracker_vars.items() if var.get()]
-        if not selected or not self._tracker_snap_data:
+        selected_acc = [acc for acc, var in self._tracker_vars.items() if var.get()]
+        selected_inc = [(iid, self._income_names[iid])
+                        for iid, var in self._income_tracker_vars.items() if var.get()]
+
+        if not selected_acc and not selected_inc:
             ctk.CTkLabel(
                 self._tracker_chart_frame,
-                text="Select one or more accounts above to see their balance over time.",
+                text="Select one or more accounts or income sources above to see their values over time.",
                 text_color="gray", font=ctk.CTkFont(size=12),
             ).pack(anchor="w", pady=(4, 8))
+            return
+
+        if not self._tracker_snap_data:
             return
 
         pal = _palette()
@@ -293,21 +330,35 @@ class ChartsView(ctk.CTkScrollableFrame):
         all_labels = [_snap_label(s) for s in self._tracker_snap_data]
         all_x      = list(range(len(self._tracker_snap_data)))
 
-        for i, acc in enumerate(selected):
+        color_idx = 0
+        for acc in selected_acc:
             xs, ys = [], []
             for xi, s in zip(all_x, self._tracker_snap_data):
                 if acc in s["balances"]:
                     xs.append(xi)
                     ys.append(s["balances"][acc])
             if xs:
-                color = _TRACKER_COLORS[i % len(_TRACKER_COLORS)]
+                color = _TRACKER_COLORS[color_idx % len(_TRACKER_COLORS)]
                 ax.plot(xs, ys, color=color, linewidth=2.5,
                         marker="o", markersize=5, zorder=3, label=acc)
                 ax.fill_between(xs, ys, alpha=0.08, color=color)
+            color_idx += 1
+
+        for iid, name in selected_inc:
+            xs, ys = [], []
+            for xi, inc_data in zip(all_x, self._income_snap_data):
+                if iid in inc_data:
+                    xs.append(xi)
+                    ys.append(inc_data[iid])
+            if xs:
+                color = _TRACKER_COLORS[color_idx % len(_TRACKER_COLORS)]
+                ax.plot(xs, ys, color=color, linewidth=2, linestyle="--",
+                        marker="s", markersize=5, zorder=3, label=f"Income: {name}")
+            color_idx += 1
 
         self._set_xticks(ax, all_labels, all_x)
 
-        if len(selected) > 1:
+        if (len(selected_acc) + len(selected_inc)) > 1:
             leg = ax.legend(fontsize=9, facecolor=pal["axes_bg"],
                             edgecolor=pal["spine"])
             for txt in leg.get_texts():

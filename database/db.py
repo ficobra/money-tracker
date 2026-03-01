@@ -94,6 +94,7 @@ def init_db():
 
             INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_buffer', '20.0');
             INSERT OR IGNORE INTO settings (key, value) VALUES ('my_notes', '');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('appearance_mode', 'System');
         """)
         # Migrate notes table for existing databases (add columns if missing)
         note_cols = {row[1] for row in conn.execute("PRAGMA table_info(notes)").fetchall()}
@@ -362,8 +363,8 @@ def delete_note(note_id: int):
 def get_all_income() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
-            "SELECT id, name, amount, day_of_month"
-            " FROM recurring_income ORDER BY day_of_month, name"
+            "SELECT id, name, amount, day_of_month, income_type, active_months"
+            " FROM recurring_income ORDER BY name"
         ).fetchall()
 
 
@@ -434,3 +435,21 @@ def get_earliest_snapshot() -> tuple[int, int] | None:
             "SELECT year, month FROM snapshots ORDER BY year ASC, month ASC LIMIT 1"
         ).fetchone()
         return (row["year"], row["month"]) if row else None
+
+
+# ── Reset ──────────────────────────────────────────────────────────────────────
+
+def reset_all_data():
+    """Delete all user data (snapshots, accounts, expenses, income, notes) and reset settings."""
+    with get_connection() as conn:
+        conn.executescript("""
+            DELETE FROM snapshot_income;
+            DELETE FROM snapshot_balances;
+            DELETE FROM snapshots;
+            DELETE FROM accounts;
+            DELETE FROM fixed_expenses;
+            DELETE FROM notes;
+            DELETE FROM recurring_income;
+            UPDATE settings SET value = '20.0' WHERE key = 'daily_buffer';
+            UPDATE settings SET value = ''    WHERE key = 'my_notes';
+        """)

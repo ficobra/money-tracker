@@ -16,7 +16,7 @@ from database.db import (
     get_setting,
     set_setting,
 )
-from utils import fmt_eur, fmt_eur_signed
+from utils import fmt_eur, fmt_eur_signed, center_on_parent, effective_charge_day
 
 MONTHS = [
     "January", "February", "March", "April",
@@ -170,6 +170,10 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         )
         self._adjusted_label.pack(side="left")
 
+        # Income this month (Seasonal + Variable income sources)
+        self._income_container = ctk.CTkFrame(self, fg_color="transparent")
+        self._income_container.pack(fill="x", padx=24, pady=(0, 8))
+
         # Save + status
         save_row = ctk.CTkFrame(self, fg_color="transparent")
         save_row.pack(anchor="w", padx=24, pady=(0, 4))
@@ -190,10 +194,6 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             command=self._delete_snapshot,
         )
         # Initially hidden; shown from _load_existing when snapshot exists
-
-        # Income this month (Seasonal + Variable income sources)
-        self._income_container = ctk.CTkFrame(self, fg_color="transparent")
-        self._income_container.pack(fill="x", padx=24, pady=(0, 8))
 
         # Mid-month estimation (rebuilt when period or buffer changes)
         self._estimation_container = ctk.CTkFrame(self, fg_color="transparent")
@@ -387,17 +387,18 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         year, month = period
 
         all_income = list(get_all_income())
-        # Show Seasonal income active in this month, and all Variable income
+        # Show income sources active in this month
+        # active_months NULL or empty = active every month
         relevant: list[dict] = []
         for item in all_income:
-            itype = item.get("income_type", "fixed")
-            if itype == "seasonal":
-                active_str = item.get("active_months") or ""
+            item = dict(item)
+            active_str = item.get("active_months") or ""
+            if not active_str.strip():
+                relevant.append(item)
+            else:
                 active = {int(x) for x in active_str.split(",") if x.strip().isdigit()}
                 if month in active:
-                    relevant.append(dict(item))
-            elif itype == "variable":
-                relevant.append(dict(item))
+                    relevant.append(item)
 
         if not relevant:
             return
@@ -422,8 +423,6 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         for item in relevant:
             iid       = item["id"]
-            itype     = item.get("income_type", "variable")
-            type_lbl  = "Seasonal" if itype == "seasonal" else "Variable"
             saved_val = saved.get(iid)
             default   = f"{saved_val:.2f}" if saved_val is not None else f"{item['amount']:.2f}"
 
@@ -433,11 +432,7 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             row = ctk.CTkFrame(inner, fg_color="transparent")
             row.pack(fill="x", pady=2)
             ctk.CTkLabel(
-                row, text=item["name"], width=220, anchor="w",
-            ).pack(side="left")
-            ctk.CTkLabel(
-                row, text=type_lbl, width=80, anchor="w",
-                text_color="gray", font=ctk.CTkFont(size=11),
+                row, text=item["name"], width=300, anchor="w",
             ).pack(side="left")
             ctk.CTkLabel(row, text="EUR", anchor="w").pack(side="left", padx=(0, 4))
             ctk.CTkEntry(row, textvariable=var, width=110).pack(side="left")
@@ -579,17 +574,10 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         remaining_days = last_day - today.day
         expenses       = list(get_all_expenses())
 
-        remaining_fx: list = []
-        for e in expenses:
-            d = e["day_of_month"]
-            if last_day < 31 and d == 31:
-                remaining_fx.append(e)
-            elif d > today.day:
-                remaining_fx.append(e)
-
-        remaining_fx_total   = sum(e["amount"] for e in remaining_fx)
+        all_fx               = list(expenses)
+        fx_total             = sum(e["amount"] for e in all_fx)
         buffer_cost          = remaining_days * daily_buffer
-        self._est_total_cost = buffer_cost + remaining_fx_total
+        self._est_total_cost = buffer_cost + fx_total
 
         card  = ctk.CTkFrame(self._estimation_container)
         card.pack(fill="x")
@@ -653,18 +641,17 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         expenses_hdr = ctk.CTkFrame(inner, fg_color="transparent")
         expenses_hdr.pack(fill="x", pady=(2, 0))
         ctk.CTkLabel(expenses_hdr,
-                     text=f"Remaining fixed expenses  ({len(remaining_fx)} items)",
+                     text=f"Fixed expenses this month  ({len(all_fx)} items)",
                      anchor="w", text_color="gray",
                      font=ctk.CTkFont(size=12)).pack(side="left")
-        ctk.CTkLabel(expenses_hdr, text=f"–{fmt_eur(remaining_fx_total)}",
+        ctk.CTkLabel(expenses_hdr, text=f"–{fmt_eur(fx_total)}",
                      anchor="e", text_color=_RED,
                      font=ctk.CTkFont(size=12)).pack(side="right")
 
-        for e in remaining_fx:
-            day_label = (
-                "end of month" if (e["day_of_month"] == 31 and last_day < 31)
-                else f"day {e['day_of_month']}"
-            )
+        for e in all_fx:
+            d     = e["day_of_month"]
+            eff_d = effective_charge_day(today.year, today.month, d, last_day)
+            day_label = "end of month" if (d == 31 and last_day < 31) else f"day {eff_d}"
             est_row(f"  · {e['name']}  ({day_label})",
                     f"–{fmt_eur(e['amount'])}", _RED, small=True)
 
@@ -776,10 +763,9 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         remaining_fx: list = []
         for e in expenses:
-            d = e["day_of_month"]
-            if last_day < 31 and d == 31:
-                remaining_fx.append(e)
-            elif d > today.day:
+            d     = e["day_of_month"]
+            eff_d = effective_charge_day(today.year, today.month, d, last_day)
+            if eff_d > today.day:
                 remaining_fx.append(e)
 
         buffer_cost = remaining_days * daily_buffer
@@ -837,8 +823,8 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         dialog = ctk.CTkToplevel(self)
         dialog.title("Deduct Estimated Remaining Costs?")
-        dialog.geometry("580x520")
         dialog.resizable(False, False)
+        center_on_parent(dialog, self, 580, 520)
         dialog.grab_set()
         dialog.focus_set()
 
@@ -884,10 +870,9 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
                      font=ctk.CTkFont(size=12)).pack(side="right")
 
         for e in remaining_fx:
-            day_label = (
-                "end of month" if (e["day_of_month"] == 31 and last_day < 31)
-                else f"day {e['day_of_month']}"
-            )
+            d     = e["day_of_month"]
+            eff_d = effective_charge_day(year, month, d, last_day)
+            day_label = "end of month" if (d == 31 and last_day < 31) else f"day {eff_d}"
             dlg_row(f"  · {e['name']}  ({day_label})",
                     f"–{fmt_eur(e['amount'])}", _RED, small=True)
 
@@ -981,8 +966,8 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         result = [False]
         dialog = ctk.CTkToplevel(self)
         dialog.title("Confirm")
-        dialog.geometry("460x150")
         dialog.resizable(False, False)
+        center_on_parent(dialog, self, 460, 150)
         dialog.grab_set()
         dialog.focus_set()
         ctk.CTkLabel(

@@ -1,17 +1,9 @@
-import shutil
-from datetime import date
-from tkinter import filedialog
-
 import customtkinter as ctk
-
-from database.db import DB_PATH
 
 
 class HelpView(ctk.CTkScrollableFrame):
     def __init__(self, parent):
         super().__init__(parent, corner_radius=0, fg_color="transparent")
-        self._backup_status:  ctk.CTkLabel | None = None
-        self._restore_status: ctk.CTkLabel | None = None
         self._build()
 
     # ── Build ─────────────────────────────────────────────────────────────────
@@ -24,14 +16,14 @@ class HelpView(ctk.CTkScrollableFrame):
         self._section("Getting Started")
         self._body(
             "Money Tracker uses a snapshot model: once per month (ideally on the last day), "
-            "you enter the current balance of each of your accounts. The app then calculates "
+            "you enter the current balance of each of your accounts. The app calculates "
             "the difference between consecutive months to determine your net worth change, "
             "income, savings rate, and more."
         )
         self._body(
-            "After saving your first snapshot, you won't see any comparison stats yet — "
+            "After saving your first snapshot, you won't see comparison stats yet — "
             "you need at least two monthly snapshots before the app can calculate changes. "
-            "Once you have two or more snapshots, the Dashboard, Charts, and all stats will "
+            "Once you have two or more snapshots, the Dashboard, Charts, and all stats "
             "become fully populated."
         )
 
@@ -40,7 +32,7 @@ class HelpView(ctk.CTkScrollableFrame):
 
         self._heading("Account rows")
         self._body(
-            "Each row represents one account (bank account, cash, broker, etc.). "
+            "Each row represents one account (bank account, cash, brokerage, etc.). "
             "Enter the current balance in EUR. You can add or remove accounts at any time — "
             "the account list is fully dynamic."
         )
@@ -50,7 +42,7 @@ class HelpView(ctk.CTkScrollableFrame):
             "Clicking + Add Account automatically enables edit mode."
         )
         self._body(
-            "When you navigate to a current or future month that has no saved snapshot yet, "
+            "When you navigate to a current or future month with no saved snapshot yet, "
             "all accounts you've ever saved are pre-filled with empty balances so you don't "
             "have to re-type account names every month."
         )
@@ -58,21 +50,30 @@ class HelpView(ctk.CTkScrollableFrame):
         self._heading("Investment accounts")
         self._body(
             "In Edit Accounts mode, tick the INV checkbox next to an account to mark it as "
-            "an investment account. Investment accounts are excluded from the Net Worth "
-            "calculation and shown separately as 'Investment Portfolio' on the Dashboard. "
-            "They still appear in the Account Breakdown and Account Tracker chart."
+            "an investment account (e.g. a brokerage or ETF portfolio). Investment accounts "
+            "are excluded from the Net Worth calculation and shown separately as "
+            "'Investment Portfolio' on the Dashboard."
         )
         self._body(
-            "Net Worth shown in the snapshot is labelled 'Net Worth (excl. investments)'. "
+            "Net Worth in the snapshot is labelled 'Net Worth (excl. investments)'. "
             "A separate 'Investment Portfolio' line shows the total value of all investment "
-            "accounts. Both appear in the Snapshot summary and Dashboard cards."
+            "accounts. Both appear in the Snapshot summary and Dashboard cards. Investment "
+            "accounts are marked with * in the Account Breakdown table."
+        )
+
+        self._heading("Income This Month")
+        self._body(
+            "When you open Monthly Snapshot for a period where you have active income sources, "
+            "an 'Income This Month' section appears above the Save Snapshot button. Enter the "
+            "actual amount received for each income source. This is saved per month and used "
+            "for tracking actual vs. expected income over time."
         )
 
         self._heading("Saving a snapshot")
         self._body(
-            "Click Save Snapshot when you've entered all balances. If today is not the last "
-            "day of the month, a mid-month estimation card also appears (see below). "
-            "A confirmation message shows your net worth."
+            "Click Save Snapshot when you've entered all balances and income amounts. "
+            "If today is not the last day of the month, a mid-month estimation card also "
+            "appears (see below). A confirmation message shows your net worth."
         )
         self._body(
             "Saving a snapshot for a future month shows a warning. This is allowed but not "
@@ -91,8 +92,8 @@ class HelpView(ctk.CTkScrollableFrame):
             "After saving a snapshot mid-month, a dialog asks if you'd like to deduct "
             "estimated remaining costs from one of your non-investment accounts. This adjusts "
             "the saved balance to reflect what you expect to spend by month end. You can also "
-            "add a one-time extra cost (e.g. upcoming dentist bill, car insurance). Skip this "
-            "dialog if you prefer to enter exact balances at month end instead."
+            "add a one-time extra cost (e.g. upcoming large expense). Skip this dialog if you "
+            "prefer to enter exact balances at month end instead."
         )
 
         self._divider()
@@ -102,18 +103,22 @@ class HelpView(ctk.CTkScrollableFrame):
             "Mid-Month Estimation card appears automatically. It shows:"
         )
         self._bullet("Buffer cost: remaining days × your Daily Spending Allowance")
-        self._bullet("Remaining fixed expenses: all fixed expenses due after today")
+        self._bullet(
+            "Fixed expenses this month: all fixed monthly expenses for the entire month "
+            "(regardless of whether they have already passed). Each expense shows its effective "
+            "banking day — Saturday and Sunday charges shift to the following Monday."
+        )
         self._bullet(
             "Estimated end-of-month net worth: your current entered total (excl. investments) "
-            "minus all estimated remaining costs"
+            "minus all fixed expenses minus the buffer cost"
         )
         self._body(
-            "The Daily Spending Allowance (default: €20/day) is editable directly in the "
-            "card via the Edit button. Changes are saved immediately and reflected across "
-            "the app. You can also edit it from the Expenses tab."
+            "The Daily Spending Allowance is editable directly in the estimation card via "
+            "the Edit button, or from the Settings tab. Changes are saved immediately and "
+            "reflected across the app."
         )
         self._body(
-            "Tick the checkbox Show adjusted net worth alongside actual total to see "
+            "Tick the checkbox 'Show adjusted net worth alongside actual total' to see "
             "the estimated adjusted total displayed next to the raw total row as you type."
         )
 
@@ -127,9 +132,9 @@ class HelpView(ctk.CTkScrollableFrame):
             "permanently in the list. They are used in mid-month estimation calculations."
         )
         self._body(
-            "Click Edit in the section header to enter edit mode. In edit mode, each row "
-            "shows an Edit button (opens an inline form to change the day, name, and amount) "
-            "and a × button (asks for confirmation, then deletes). Click Done to exit edit mode."
+            "Click Edit in the section header to enter edit mode. In edit mode, all rows "
+            "become editable entries simultaneously. Click × to delete a row (with "
+            "confirmation). Click Done to save all changes and exit edit mode."
         )
         self._body(
             "Expenses with day 31 are treated as end-of-month charges and are always "
@@ -138,27 +143,19 @@ class HelpView(ctk.CTkScrollableFrame):
 
         self._heading("Monthly Income")
         self._body(
-            "Track your regular income sources (salary, freelance, seasonal work, etc.). "
-            "Each income source has a type:"
-        )
-        self._bullet(
-            "Fixed — same amount every month, active every month. Specify the day of "
-            "month it typically arrives (0 = variable timing)."
-        )
-        self._bullet(
-            "Seasonal — active only in selected months (e.g. summer work, quarterly bonus). "
-            "Choose active months via the checkboxes. When you open Monthly Snapshot for an "
-            "active month, an 'Income This Month' section appears so you can log the actual "
-            "amount received."
-        )
-        self._bullet(
-            "Variable — appears every month in the 'Income This Month' section of Monthly "
-            "Snapshot as a reminder. Enter the actual amount received each month. "
-            "The base amount in the Budget tab is an estimate only."
+            "Track your regular income sources (salary, freelance income, seasonal work, etc.). "
+            "Each income source has a name, expected amount, and a set of active months."
         )
         self._body(
-            "Click Edit in the Monthly Income section header to enter edit mode. In edit "
-            "mode, each row shows Edit and × buttons. Click Done to exit."
+            "Active months determine which months show this income source in the "
+            "'Income This Month' section of Monthly Snapshot. If all 12 months are checked, "
+            "the income appears every month. Uncheck months where the income doesn't apply "
+            "(e.g. summer-only work, quarterly payments)."
+        )
+        self._body(
+            "Click Edit in the Monthly Income section header to enter edit mode. All rows "
+            "become editable simultaneously — change the name, amount, and active months. "
+            "Click × to delete a source (with confirmation). Click Done to save all changes."
         )
         self._body(
             "The total of all income sources appears as 'Expected Monthly Income' on the "
@@ -166,31 +163,17 @@ class HelpView(ctk.CTkScrollableFrame):
             "minus Fixed Expenses."
         )
 
-        self._heading("Daily Spending Allowance")
-        self._body(
-            "The Daily Spending Allowance is your estimated budget for variable spending "
-            "each day (food, transport, leisure, etc.). It is not a fixed expense — it is "
-            "used only in mid-month estimations. The default is €20/day. Edit it in this "
-            "tab or directly from the estimation card in Monthly Snapshot or Dashboard."
-        )
-
         self._divider()
         self._section("Dashboard")
 
         self._heading("Metric cards")
-        self._body(
-            "The cards at the top show your most recent month's key numbers:"
-        )
-        self._bullet(
-            "Net Worth — total balance of non-investment accounts in the latest snapshot"
-        )
+        self._body("The cards at the top show your most recent month's key numbers:")
+        self._bullet("Net Worth — total balance of non-investment accounts in the latest snapshot")
         self._bullet(
             "Monthly Change — difference between latest and previous snapshot net worths, "
             "with percentage"
         )
-        self._bullet(
-            "Fixed Expenses — sum of all your fixed monthly expenses (from the Budget tab)"
-        )
+        self._bullet("Fixed Expenses — sum of all your fixed monthly expenses (from the Budget tab)")
         self._bullet(
             "Disposable Income — Monthly Change minus Fixed Expenses. Positive means you "
             "earned more than your fixed costs; negative means a shortfall."
@@ -213,11 +196,11 @@ class HelpView(ctk.CTkScrollableFrame):
             "it will never prompt you for periods before you started tracking."
         )
 
-        self._heading("Investment Portfolio section")
+        self._heading("Snapshot History")
         self._body(
-            "If any accounts are marked as investment accounts, an Investment Portfolio "
-            "section appears below the annual overview showing the total current value "
-            "and a per-account breakdown."
+            "A compact grid at the bottom of the Dashboard showing all months across all "
+            "years. A ✓ button indicates a saved snapshot — click it to navigate directly "
+            "to that month in the Monthly Snapshot view. A · indicates no snapshot for that month."
         )
 
         self._heading("Annual Overview")
@@ -231,7 +214,7 @@ class HelpView(ctk.CTkScrollableFrame):
         self._body(
             "A table showing each account's balance in the latest snapshot, compared to "
             "the previous snapshot, with the change highlighted in green or red. "
-            "Investment accounts are marked with ★."
+            "Investment accounts are marked with *."
         )
 
         self._heading("Export to CSV")
@@ -247,16 +230,20 @@ class HelpView(ctk.CTkScrollableFrame):
             "All charts are generated from your saved snapshots. At least two snapshots "
             "are required for most charts to appear."
         )
-        self._bullet(
-            "Net Worth Over Time — line chart of your net worth (excl. investments) across all snapshots"
-        )
+        self._bullet("Net Worth Over Time — line chart of your net worth (excl. investments) across all snapshots")
         self._bullet(
             "Monthly Net Worth Change — bar chart of month-on-month changes; "
             "green = growth, red = decline"
         )
         self._bullet(
-            "Account Tracker — select one or more accounts with the checkboxes to plot "
-            "their balance over time. Your selection is remembered while the app is running."
+            "Account Tracker — select one or more accounts and/or income sources with the "
+            "checkboxes to plot their values over time. Account balances are shown as solid "
+            "lines; actual income amounts (as entered in each month's snapshot) are shown as "
+            "dashed lines. Your selection is remembered while the app is running."
+        )
+        self._bullet(
+            "Investment Performance — shown when investment accounts exist. Plots current "
+            "value vs. total amount deposited over time."
         )
 
         self._divider()
@@ -265,52 +252,45 @@ class HelpView(ctk.CTkScrollableFrame):
         self._heading("My Notes")
         self._body(
             "A free-text area where you can write anything — reminders, financial goals, "
-            "context for unusual months, etc. Click Save Notes to persist your text. "
-            "Content is saved immediately and survives app restarts."
+            "context for unusual months, etc. Click Save Notes to persist your text."
         )
 
         self._heading("Debt / Credit Notes")
         self._body(
             "Track money owed between you and others. Each note has a description, an "
-            "amount, and a direction: They owe me or I owe them. The summary cards at the "
-            "top show your net position. These notes are for reference only — they are "
-            "not included in net worth or any other calculations."
+            "amount, and a direction: They owe me or I owe them. The summary cards show "
+            "your net position. These notes are for reference only — they are not included "
+            "in net worth or any other calculations."
         )
 
         self._divider()
-        self._section("Data Management")
+        self._section("Settings Tab")
+
+        self._heading("Daily Spending Allowance")
         self._body(
-            "Back up your tracker database or restore from a previous backup. "
-            "The database file (tracker.db) contains all your snapshots, expenses, income, "
-            "and notes."
+            "Your estimated budget per day for variable spending (food, transport, leisure, "
+            "etc.). Used only in mid-month estimations. You can also edit it directly from "
+            "the estimation card in Monthly Snapshot or Dashboard."
         )
 
-        # ── Backup button ────────────────────────────────────────────────────
-        backup_row = ctk.CTkFrame(self, fg_color="transparent")
-        backup_row.pack(anchor="w", padx=24, pady=(6, 4))
-        ctk.CTkButton(
-            backup_row, text="Backup Data", width=140,
-            command=self._backup,
-        ).pack(side="left", padx=(0, 12))
-        self._backup_status = ctk.CTkLabel(backup_row, text="", font=ctk.CTkFont(size=12))
-        self._backup_status.pack(side="left")
-
-        # ── Restore button ───────────────────────────────────────────────────
-        restore_row = ctk.CTkFrame(self, fg_color="transparent")
-        restore_row.pack(anchor="w", padx=24, pady=(0, 8))
-        ctk.CTkButton(
-            restore_row, text="Restore Data", width=140,
-            fg_color="transparent", border_width=1,
-            text_color=("#C0392B", "#E74C3C"),
-            hover_color=("gray85", "gray20"),
-            command=self._restore,
-        ).pack(side="left", padx=(0, 12))
-        self._restore_status = ctk.CTkLabel(restore_row, text="", font=ctk.CTkFont(size=12))
-        self._restore_status.pack(side="left")
-
+        self._heading("Appearance")
         self._body(
-            "Backup saves a copy of tracker.db. Restore replaces your current database "
-            "with the backup and closes the app — you must reopen it to see the restored data."
+            "Choose between System (follows your OS setting), Light, or Dark mode. "
+            "The setting is saved and applied automatically on the next launch."
+        )
+
+        self._heading("Backup & Restore")
+        self._body(
+            "Backup saves a copy of your tracker database (tracker.db) to a location you "
+            "choose. Restore replaces the current database with a backup file and closes "
+            "the app — reopen it to see the restored data."
+        )
+
+        self._heading("Reset All Data")
+        self._body(
+            "Permanently deletes all snapshots, accounts, expenses, income, and notes, and "
+            "resets settings to defaults. The app closes after reset. Type DELETE in the "
+            "confirmation dialog to proceed. This cannot be undone."
         )
 
         self._divider()
@@ -319,31 +299,27 @@ class HelpView(ctk.CTkScrollableFrame):
             "Enter your snapshot on the last day of each month for the most accurate data."
         )
         self._bullet(
-            "Mark your ETF or stock brokerage account (e.g. Flatex) as an investment account "
-            "so the Dashboard shows it separately from your liquid net worth."
+            "Mark your brokerage or ETF account as an investment account so the Dashboard "
+            "shows it separately from your liquid net worth."
         )
         self._bullet(
-            "Add your salary and any other regular income to the Monthly Income section "
-            "(Budget tab) so the Dashboard can calculate your Spending Budget. Use the "
-            "Fixed type for salary, Seasonal for things like summer work or quarterly "
-            "bonuses, and Variable for irregular cash payments."
+            "Add all your regular income sources to the Monthly Income section (Budget tab) "
+            "so the Dashboard can calculate your Spending Budget. Uncheck months where a "
+            "source is not active to keep the 'Income This Month' section in snapshots clean."
         )
         self._bullet(
             "Use the Extra one-time cost field in the mid-month deduction dialog for known "
-            "upcoming expenses (dentist, car service, travel) so the adjusted balance "
-            "reflects your real expected position at month end."
+            "upcoming expenses so the adjusted balance reflects your real expected position."
         )
         self._bullet(
             "If you missed a month, you can still enter a snapshot for any past month — "
-            "just select the correct period in the period selector."
+            "just select the correct period in the period selector, or click the · cell "
+            "in the Snapshot History grid on the Dashboard."
         )
         self._bullet(
-            "The Daily Spending Allowance only affects mid-month estimations. Adjust it "
-            "whenever your spending habits change."
-        )
-        self._bullet(
-            "Fixed expenses with day 31 (e.g. end-of-month bank fees) are always counted "
-            "in the mid-month estimation for months shorter than 31 days."
+            "Fixed expenses with day 31 (e.g. end-of-month bank fees) are always shown in the "
+            "mid-month estimation for months shorter than 31 days. Expenses falling on a "
+            "Saturday or Sunday are shown with their effective Monday banking date."
         )
         self._bullet(
             "Export to CSV regularly as an extra backup of your financial history."
@@ -351,69 +327,6 @@ class HelpView(ctk.CTkScrollableFrame):
 
         # Bottom padding
         ctk.CTkFrame(self, height=32, fg_color="transparent").pack()
-
-    # ── Backup & Restore ──────────────────────────────────────────────────────
-
-    def _backup(self):
-        today        = date.today()
-        default_name = f"money-tracker-backup-{today.strftime('%Y-%m-%d')}.db"
-
-        filepath = filedialog.asksaveasfilename(
-            defaultextension=".db",
-            filetypes=[("Database files", "*.db"), ("All files", "*.*")],
-            initialfile=default_name,
-        )
-        if not filepath:
-            return
-
-        shutil.copy2(DB_PATH, filepath)
-        if self._backup_status:
-            self._backup_status.configure(text="Backup saved!", text_color="#2CC985")
-            self.after(4000, lambda: self._backup_status.configure(text="") if self._backup_status else None)
-
-    def _restore(self):
-        filepath = filedialog.askopenfilename(
-            filetypes=[("Database files", "*.db"), ("All files", "*.*")],
-        )
-        if not filepath:
-            return
-
-        result = [False]
-        dialog = ctk.CTkToplevel(self)
-        dialog.title("Confirm Restore")
-        dialog.geometry("480x180")
-        dialog.resizable(False, False)
-        dialog.grab_set()
-        dialog.focus_set()
-        ctk.CTkLabel(
-            dialog,
-            text=(
-                "Restore data from the selected backup?\n\n"
-                "This will replace ALL current data. The app will close — "
-                "reopen it to see the restored data."
-            ),
-            wraplength=440, justify="left", font=ctk.CTkFont(size=13),
-        ).pack(padx=20, pady=(20, 16))
-        btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
-        btn_row.pack()
-
-        def on_confirm():
-            result[0] = True
-            dialog.destroy()
-
-        ctk.CTkButton(btn_row, text="Restore & Close", width=140, command=on_confirm).pack(
-            side="left", padx=(0, 8)
-        )
-        ctk.CTkButton(
-            btn_row, text="Cancel", width=80,
-            fg_color="transparent", border_width=1,
-            command=dialog.destroy,
-        ).pack(side="left")
-        dialog.wait_window()
-
-        if result[0]:
-            shutil.copy2(filepath, DB_PATH)
-            self.winfo_toplevel().destroy()
 
     # ── Widget helpers ────────────────────────────────────────────────────────
 
@@ -424,9 +337,7 @@ class HelpView(ctk.CTkScrollableFrame):
         ).pack(anchor="w", padx=24, pady=(24, 2))
 
     def _subtitle(self, text: str):
-        ctk.CTkLabel(
-            self, text=text, text_color="gray",
-        ).pack(anchor="w", padx=24, pady=(0, 4))
+        ctk.CTkLabel(self, text=text, text_color="gray").pack(anchor="w", padx=24, pady=(0, 4))
 
     def _divider(self):
         ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
