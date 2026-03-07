@@ -11,10 +11,21 @@ from database.db import (
 )
 from utils import fmt_eur
 
+# Premium dark theme palette
+_BG_CARD  = "#161f2e"
+_ACCENT   = "#00b4d8"
+_TEXT_PRI = "#e6edf3"
+_TEXT_SEC = "#8b949e"
+_BORDER   = "#2a3a52"
+_BG_ELEM  = "#21262d"
+_GREEN    = "#3fb950"
+_RED      = "#f85149"
+_F        = "Helvetica Neue"
+
 # Maps the user-facing label to the DB string and its display colour
 _DIRECTIONS: dict[str, tuple[str, str]] = {
-    "They owe me": ("they_owe", "#2CC985"),
-    "I owe them":  ("i_owe",   "#E74C3C"),
+    "They owe me": ("they_owe", _GREEN),
+    "I owe them":  ("i_owe",   _RED),
 }
 _DB_TO_LABEL = {v[0]: k for k, v in _DIRECTIONS.items()}
 
@@ -35,51 +46,65 @@ class NotesView(ctk.CTkScrollableFrame):
     def _build(self):
         ctk.CTkLabel(
             self, text="Notes",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=22, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(24, 2))
         ctk.CTkLabel(
             self,
             text="Personal notes and debt/credit tracking.",
-            text_color="gray",
+            text_color=_TEXT_SEC,
         ).pack(anchor="w", padx=24, pady=(0, 20))
 
         # ══ My Notes section ══════════════════════════════════════════════════
         ctk.CTkLabel(
             self, text="My Notes",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=15, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(0, 8))
 
-        my_notes_card = ctk.CTkFrame(self)
+        my_notes_card = ctk.CTkFrame(
+            self, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
         my_notes_card.pack(fill="x", padx=24, pady=(0, 6))
         my_notes_inner = ctk.CTkFrame(my_notes_card, fg_color="transparent")
         my_notes_inner.pack(fill="x", padx=16, pady=14)
 
-        self._my_notes_box = ctk.CTkTextbox(my_notes_inner, height=140, wrap="word")
+        self._my_notes_box = ctk.CTkTextbox(
+            my_notes_inner, height=140, wrap="word",
+            fg_color=_BG_ELEM, border_color=_BORDER,
+            text_color=_TEXT_PRI, border_width=1,
+        )
         self._my_notes_box.pack(fill="x")
 
         save_row = ctk.CTkFrame(my_notes_inner, fg_color="transparent")
         save_row.pack(anchor="e", pady=(8, 0))
         ctk.CTkButton(
             save_row, text="Save Notes", width=110,
+            fg_color=_ACCENT, hover_color="#0096b4",
+            text_color="white", corner_radius=8,
             command=self._save_my_notes,
         ).pack(side="left", padx=(0, 10))
-        self._my_notes_status = ctk.CTkLabel(save_row, text="", font=ctk.CTkFont(size=12))
+        self._my_notes_status = ctk.CTkLabel(
+            save_row, text="", font=ctk.CTkFont(family=_F, size=12),
+        )
         self._my_notes_status.pack(side="left")
 
         # ── Divider ───────────────────────────────────────────────────────────
-        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
+        ctk.CTkFrame(self, height=1, fg_color=_BORDER).pack(
             fill="x", padx=24, pady=(16, 20)
         )
 
         # ══ Debt / Credit Notes section ═══════════════════════════════════════
         ctk.CTkLabel(
             self, text="Debt / Credit Notes",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=15, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(0, 4))
         ctk.CTkLabel(
             self,
             text="Purely informational — not included in any calculations.",
-            text_color="gray",
+            text_color=_TEXT_SEC,
         ).pack(anchor="w", padx=24, pady=(0, 16))
 
         # ── Summary cards ─────────────────────────────────────────────────────
@@ -87,30 +112,47 @@ class NotesView(ctk.CTkScrollableFrame):
         summary_row.pack(fill="x", padx=24, pady=(0, 20))
         summary_row.columnconfigure([0, 1], weight=1)
 
-        they_card = ctk.CTkFrame(summary_row)
+        they_card = ctk.CTkFrame(
+            summary_row, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
         they_card.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         they_inner = ctk.CTkFrame(they_card, fg_color="transparent")
         they_inner.pack(padx=16, pady=14)
-        ctk.CTkLabel(they_inner, text="OTHERS OWE ME", text_color="gray",
-                     font=ctk.CTkFont(size=11)).pack(anchor="w")
-        self._they_total = ctk.CTkLabel(they_inner, text="€0.00",
-                                        font=ctk.CTkFont(size=22, weight="bold"),
-                                        text_color="#2CC985")
+        ctk.CTkLabel(
+            they_inner, text="OTHERS OWE ME", text_color=_TEXT_SEC,
+            font=ctk.CTkFont(family=_F, size=11),
+        ).pack(anchor="w")
+        self._they_total = ctk.CTkLabel(
+            they_inner, text="€0.00",
+            font=ctk.CTkFont(family=_F, size=22, weight="bold"),
+            text_color=_GREEN,
+        )
         self._they_total.pack(anchor="w", pady=(6, 0))
 
-        i_card = ctk.CTkFrame(summary_row)
+        i_card = ctk.CTkFrame(
+            summary_row, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
         i_card.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         i_inner = ctk.CTkFrame(i_card, fg_color="transparent")
         i_inner.pack(padx=16, pady=14)
-        ctk.CTkLabel(i_inner, text="I OWE OTHERS", text_color="gray",
-                     font=ctk.CTkFont(size=11)).pack(anchor="w")
-        self._i_total = ctk.CTkLabel(i_inner, text="€0.00",
-                                     font=ctk.CTkFont(size=22, weight="bold"),
-                                     text_color="#E74C3C")
+        ctk.CTkLabel(
+            i_inner, text="I OWE OTHERS", text_color=_TEXT_SEC,
+            font=ctk.CTkFont(family=_F, size=11),
+        ).pack(anchor="w")
+        self._i_total = ctk.CTkLabel(
+            i_inner, text="€0.00",
+            font=ctk.CTkFont(family=_F, size=22, weight="bold"),
+            text_color=_RED,
+        )
         self._i_total.pack(anchor="w", pady=(6, 0))
 
         # ── Add note form ─────────────────────────────────────────────────────
-        add_card = ctk.CTkFrame(self)
+        add_card = ctk.CTkFrame(
+            self, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
         add_card.pack(fill="x", padx=24, pady=(0, 20))
 
         form = ctk.CTkFrame(add_card, fg_color="transparent")
@@ -122,18 +164,29 @@ class NotesView(ctk.CTkScrollableFrame):
         self._add_dir.set("They owe me")
         self._add_dir.pack(side="left", padx=(0, 14))
 
-        self._add_desc = ctk.CTkEntry(form, placeholder_text="Description", width=260)
+        self._add_desc = ctk.CTkEntry(
+            form, placeholder_text="Description", width=260,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+        )
         self._add_desc.pack(side="left", padx=(0, 14))
         self._add_desc.bind("<Return>", lambda _: self._add_amount_entry.focus())
 
-        ctk.CTkLabel(form, text="EUR", anchor="w").pack(side="left", padx=(0, 4))
-        self._add_amount_entry = ctk.CTkEntry(form, placeholder_text="0.00", width=100)
+        ctk.CTkLabel(
+            form, text="EUR", anchor="w", text_color=_TEXT_SEC,
+        ).pack(side="left", padx=(0, 4))
+        self._add_amount_entry = ctk.CTkEntry(
+            form, placeholder_text="0.00", width=100,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+        )
         self._add_amount_entry.pack(side="left", padx=(0, 14))
         self._add_amount_entry.bind("<Return>", lambda _: self._add_note())
 
-        ctk.CTkButton(form, text="Add", width=80, command=self._add_note).pack(
-            side="left", padx=(0, 12)
-        )
+        ctk.CTkButton(
+            form, text="Add", width=80,
+            fg_color=_ACCENT, hover_color="#0096b4",
+            text_color="white", corner_radius=8,
+            command=self._add_note,
+        ).pack(side="left", padx=(0, 12))
         self._add_status = ctk.CTkLabel(form, text="")
         self._add_status.pack(side="left")
 
@@ -167,15 +220,15 @@ class NotesView(ctk.CTkScrollableFrame):
         self._they_total.configure(text=fmt_eur(they_sum))
         self._i_total.configure(text=fmt_eur(i_sum))
 
-        self._render_section("They owe me", they_owe, "#2CC985")
-        self._render_section("I owe them",  i_owe,    "#E74C3C")
+        self._render_section("They owe me", they_owe, _GREEN)
+        self._render_section("I owe them",  i_owe,    _RED)
 
     # ── My Notes save ─────────────────────────────────────────────────────────
 
     def _save_my_notes(self):
         content = self._my_notes_box.get("1.0", "end-1c")
         set_setting("my_notes", content)
-        self._my_notes_status.configure(text="Saved.", text_color="#2CC985")
+        self._my_notes_status.configure(text="Saved.", text_color=_GREEN)
         self.after(2500, lambda: self._my_notes_status.configure(text=""))
 
     # ── Section rendering ─────────────────────────────────────────────────────
@@ -186,21 +239,21 @@ class NotesView(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             hdr, text=title,
-            font=ctk.CTkFont(size=14, weight="bold"), text_color=colour,
+            font=ctk.CTkFont(family=_F, size=14, weight="bold"), text_color=colour,
         ).pack(side="left")
         ctk.CTkLabel(
             hdr, text=f"({len(notes)})",
-            text_color="gray", font=ctk.CTkFont(size=13),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=13),
         ).pack(side="left", padx=(6, 0))
 
-        ctk.CTkFrame(self._list_frame, height=1, fg_color=("gray80", "gray30")).pack(
+        ctk.CTkFrame(self._list_frame, height=1, fg_color=_BORDER).pack(
             fill="x", pady=(0, 6)
         )
 
         if not notes:
             ctk.CTkLabel(
                 self._list_frame, text="Nothing here yet.",
-                text_color="gray", font=ctk.CTkFont(size=12),
+                text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
             ).pack(anchor="w", pady=(2, 8))
             return
 
@@ -211,8 +264,10 @@ class NotesView(ctk.CTkScrollableFrame):
             ("Amount",      _W_AMT,  "e"),
             ("Added",       _W_DATE, "e"),
         ]:
-            ctk.CTkLabel(col_hdr, text=text, width=width, anchor=anchor,
-                         text_color="gray", font=ctk.CTkFont(size=12)).pack(side="left")
+            ctk.CTkLabel(
+                col_hdr, text=text, width=width, anchor=anchor,
+                text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
+            ).pack(side="left")
 
         for note in notes:
             if note["id"] == self._editing_id:
@@ -226,27 +281,37 @@ class NotesView(ctk.CTkScrollableFrame):
 
         date_str = _fmt_date(note["created_at"])
 
-        ctk.CTkLabel(row, text=note["content"], width=_W_DESC, anchor="w").pack(side="left")
-        ctk.CTkLabel(row, text=fmt_eur(note["amount"]), width=_W_AMT, anchor="e",
-                     text_color=colour).pack(side="left")
-        ctk.CTkLabel(row, text=date_str, width=_W_DATE, anchor="e",
-                     text_color="gray", font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 16))
+        ctk.CTkLabel(
+            row, text=note["content"], width=_W_DESC, anchor="w",
+            text_color=_TEXT_PRI,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            row, text=fmt_eur(note["amount"]), width=_W_AMT, anchor="e",
+            text_color=colour,
+        ).pack(side="left")
+        ctk.CTkLabel(
+            row, text=date_str, width=_W_DATE, anchor="e",
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
+        ).pack(side="left", padx=(0, 16))
 
         ctk.CTkButton(
             row, text="Edit", width=64,
-            fg_color="transparent", border_width=1,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
             command=lambda nid=note["id"]: self._start_edit(nid),
         ).pack(side="left", padx=(0, 6))
         ctk.CTkButton(
             row, text="Delete", width=72,
-            fg_color="transparent", border_width=1,
-            text_color=("#C0392B", "#E74C3C"),
-            hover_color=("gray85", "gray20"),
+            fg_color=_BG_ELEM, hover_color="#3d1a1a",
+            text_color=_RED, corner_radius=8,
             command=lambda nid=note["id"]: self._delete(nid),
         ).pack(side="left")
 
     def _render_edit_row(self, note: dict):
-        row = ctk.CTkFrame(self._list_frame, fg_color=("gray88", "gray22"))
+        row = ctk.CTkFrame(
+            self._list_frame,
+            fg_color=_BG_ELEM, corner_radius=8,
+        )
         row.pack(anchor="w", fill="x", pady=2)
 
         inner = ctk.CTkFrame(row, fg_color="transparent")
@@ -256,22 +321,33 @@ class NotesView(ctk.CTkScrollableFrame):
         desc_var   = ctk.StringVar(value=note["content"])
         amount_var = ctk.StringVar(value=f"{note['amount']:.2f}")
 
-        dir_btn = ctk.CTkSegmentedButton(inner, values=list(_DIRECTIONS.keys()),
-                                         variable=dir_var, width=260)
+        dir_btn = ctk.CTkSegmentedButton(
+            inner, values=list(_DIRECTIONS.keys()),
+            variable=dir_var, width=260,
+        )
         dir_btn.pack(side="left", padx=(0, 10))
 
-        ctk.CTkEntry(inner, textvariable=desc_var,   width=260).pack(side="left", padx=(0, 10))
+        ctk.CTkEntry(
+            inner, textvariable=desc_var, width=260,
+            fg_color="#161b22", border_color=_BORDER, text_color=_TEXT_PRI,
+        ).pack(side="left", padx=(0, 10))
 
-        ctk.CTkLabel(inner, text="EUR").pack(side="left", padx=(0, 4))
-        ctk.CTkEntry(inner, textvariable=amount_var, width=100).pack(side="left", padx=(0, 10))
+        ctk.CTkLabel(inner, text="EUR", text_color=_TEXT_SEC).pack(side="left", padx=(0, 4))
+        ctk.CTkEntry(
+            inner, textvariable=amount_var, width=100,
+            fg_color="#161b22", border_color=_BORDER, text_color=_TEXT_PRI,
+        ).pack(side="left", padx=(0, 10))
 
         ctk.CTkButton(
             inner, text="Save", width=64,
+            fg_color=_ACCENT, hover_color="#0096b4",
+            text_color="white", corner_radius=8,
             command=lambda: self._save_edit(note["id"], dir_var, desc_var, amount_var),
         ).pack(side="left", padx=(0, 6))
         ctk.CTkButton(
             inner, text="Cancel", width=72,
-            fg_color="transparent", border_width=1,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
             command=self._cancel_edit,
         ).pack(side="left", padx=(0, 8))
 
@@ -344,7 +420,7 @@ class NotesView(ctk.CTkScrollableFrame):
     # ── Status helpers ────────────────────────────────────────────────────────
 
     def _set_add_status(self, text: str, *, error: bool):
-        color = "#E74C3C" if error else "#2CC985"
+        color = _RED if error else _GREEN
         self._add_status.configure(text=text, text_color=color)
         if not error:
             self.after(3000, lambda: self._add_status.configure(text=""))
@@ -353,7 +429,7 @@ class NotesView(ctk.CTkScrollableFrame):
         if self._edit_status_label is None:
             return
         self._edit_status_label.configure(
-            text=text, text_color="#E74C3C" if error else "#2CC985"
+            text=text, text_color=_RED if error else _GREEN
         )
 
 

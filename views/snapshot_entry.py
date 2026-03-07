@@ -8,15 +8,15 @@ from database.db import (
     delete_snapshot,
     get_all_expenses,
     get_all_accounts,
-    get_all_accounts_with_flags,
-    set_account_investment,
     get_all_income,
     get_snapshot_income,
     set_snapshot_income,
+    get_extra_income,
+    add_extra_income,
+    clear_extra_income,
     get_setting,
-    set_setting,
 )
-from utils import fmt_eur, fmt_eur_signed, center_on_parent, effective_charge_day
+from utils import fmt_eur, fmt_eur_signed, center_on_parent, effective_charge_day, lock_scroll, unlock_scroll, open_dialog, bind_numeric_entry
 
 MONTHS = [
     "January", "February", "March", "April",
@@ -25,8 +25,17 @@ MONTHS = [
 ]
 
 _DEFAULT_ACCOUNTS = ["Main Bank Account", "Revolut", "Cash", "Flatex"]
-_GREEN = "#2CC985"
-_RED   = "#E74C3C"
+
+# ── Theme palette ──────────────────────────────────────────────────────────────
+_BG_CARD  = "#161f2e"
+_TEXT_PRI = "#e6edf3"
+_TEXT_SEC = "#8b949e"
+_BORDER   = "#2a3a52"
+_BG_ELEM  = "#21262d"
+_ACCENT   = "#00b4d8"
+_GREEN    = "#3fb950"
+_RED      = "#f85149"
+_F        = "Helvetica Neue"
 
 
 class SnapshotEntryView(ctk.CTkScrollableFrame):
@@ -36,15 +45,11 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
     def __init__(self, parent):
         super().__init__(parent, corner_radius=0, fg_color="transparent")
         self._rows: list[dict] = []
-        self._editing_buffer                          = False
         self._editing_accounts                        = False
         self._edit_accounts_btn: ctk.CTkButton | None = None
         self._delete_snap_btn:   ctk.CTkButton | None = None
-        self._include_estimation_var = ctk.BooleanVar(value=False)
-        self._est_eom_label: ctk.CTkLabel | None = None
-        self._est_total_cost: float = 0.0
-        # income_id -> StringVar for actual amount entered this month
         self._income_amount_vars: dict[int, ctk.StringVar] = {}
+        self._extra_income_rows:  dict[int, list[dict]]   = {}
         self._build()
 
     # ── Refresh (called by main.py when navigating to this view) ──────────────
@@ -56,7 +61,6 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             self._year_var.set(str(pending[0]))
             self._month_var.set(MONTHS[pending[1] - 1])
             self._load_existing()
-        # else: preserve current state
 
     # ── Layout ────────────────────────────────────────────────────────────────
 
@@ -65,30 +69,36 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             self, text="Monthly Snapshot",
-            font=ctk.CTkFont(size=22, weight="bold"),
-        ).pack(anchor="w", padx=24, pady=(24, 2))
+            font=ctk.CTkFont(family=_F, size=22, weight="bold"),
+            text_color=_TEXT_PRI,
+        ).pack(anchor="w", padx=24, pady=(28, 2))
         ctk.CTkLabel(
             self,
             text="Enter end-of-month balances. Accounts are fully dynamic — add or remove as needed.",
-            text_color="gray",
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=13),
         ).pack(anchor="w", padx=24, pady=(0, 20))
 
         # Period selector card
-        period_card = ctk.CTkFrame(self)
+        period_card = ctk.CTkFrame(self, fg_color=_BG_CARD, corner_radius=14,
+                                   border_width=1, border_color=_BORDER)
         period_card.pack(fill="x", padx=24, pady=(0, 24))
         period_row = ctk.CTkFrame(period_card, fg_color="transparent")
-        period_row.pack(anchor="w", padx=16, pady=14)
+        period_row.pack(anchor="w", padx=20, pady=16)
 
-        ctk.CTkLabel(period_row, text="Period:", width=56, anchor="w").pack(side="left")
+        ctk.CTkLabel(period_row, text="Period:", width=56, anchor="w",
+                     text_color=_TEXT_PRI).pack(side="left")
 
         self._month_var = ctk.StringVar(value=MONTHS[today.month - 1])
         ctk.CTkOptionMenu(
             period_row, values=MONTHS, variable=self._month_var,
             width=150, command=self._on_period_change,
+            fg_color=_BG_ELEM, button_color=_BG_ELEM, button_hover_color="#3d4d63",
+            text_color=_TEXT_PRI,
         ).pack(side="left", padx=(0, 8))
 
         self._year_var = ctk.StringVar(value=str(today.year))
-        year_entry = ctk.CTkEntry(period_row, textvariable=self._year_var, width=80)
+        year_entry = ctk.CTkEntry(period_row, textvariable=self._year_var, width=80,
+                                  fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI)
         year_entry.pack(side="left")
         year_entry.bind("<Return>",   self._on_period_change)
         year_entry.bind("<FocusOut>", self._on_period_change)
@@ -98,13 +108,13 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         header_row.pack(anchor="w", padx=24, pady=(0, 4))
         ctk.CTkLabel(
             header_row, text="Account",
-            width=300, anchor="w", text_color="gray",
-            font=ctk.CTkFont(size=12),
+            width=300, anchor="w", text_color=_TEXT_SEC,
+            font=ctk.CTkFont(family=_F, size=12),
         ).pack(side="left", padx=(0, 8))
         ctk.CTkLabel(
             header_row, text="Balance (EUR)",
-            width=150, anchor="w", text_color="gray",
-            font=ctk.CTkFont(size=12),
+            width=150, anchor="w", text_color=_TEXT_SEC,
+            font=ctk.CTkFont(family=_F, size=12),
         ).pack(side="left")
 
         # Account rows container
@@ -116,126 +126,91 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         add_btn_row.pack(anchor="w", padx=24, pady=(10, 0))
         ctk.CTkButton(
             add_btn_row, text="+ Add Account",
-            fg_color="transparent", border_width=1, width=140,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8, width=140,
             command=self._add_account_and_edit,
         ).pack(side="left", padx=(0, 8))
         self._edit_accounts_btn = ctk.CTkButton(
             add_btn_row, text="Edit Accounts", width=130,
-            fg_color="transparent", border_width=1,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
             command=self._toggle_account_editing,
         )
         self._edit_accounts_btn.pack(side="left")
 
         # Divider
-        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", padx=24, pady=(20, 12)
-        )
+        ctk.CTkFrame(self, height=1, fg_color=_BORDER).pack(fill="x", padx=24, pady=(20, 12))
 
-        # Net worth totals
+        # Net worth total
         total_row = ctk.CTkFrame(self, fg_color="transparent")
         total_row.pack(anchor="w", padx=24, pady=(0, 2))
         ctk.CTkLabel(
-            total_row, text="Net Worth (excl. investments):",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            total_row, text="Net Worth:",
+            font=ctk.CTkFont(family=_F, size=14, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(side="left", padx=(0, 10))
         self._total_label = ctk.CTkLabel(
             total_row, text="€0,00",
-            font=ctk.CTkFont(size=14, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=14, weight="bold"),
+            text_color=_TEXT_PRI,
         )
         self._total_label.pack(side="left")
 
-        # Investment total (shown when any investment account has a balance)
-        inv_total_row = ctk.CTkFrame(self, fg_color="transparent")
-        inv_total_row.pack(anchor="w", padx=24, pady=(0, 2))
-        ctk.CTkLabel(
-            inv_total_row, text="Investment Portfolio:",
-            font=ctk.CTkFont(size=13), text_color="gray",
-        ).pack(side="left", padx=(0, 10))
-        self._inv_total_label = ctk.CTkLabel(
-            inv_total_row, text="",
-            font=ctk.CTkFont(size=13), text_color="gray",
-        )
-        self._inv_total_label.pack(side="left")
-
-        # Adjusted net worth (shown when estimation checkbox is ticked)
-        adj_row = ctk.CTkFrame(self, fg_color="transparent")
-        adj_row.pack(anchor="w", padx=24, pady=(0, 16))
-        ctk.CTkLabel(
-            adj_row, text="Adjusted (est. remaining spend deducted):",
-            text_color="gray", font=ctk.CTkFont(size=12),
-        ).pack(side="left", padx=(0, 8))
-        self._adjusted_label = ctk.CTkLabel(
-            adj_row, text="",
-            font=ctk.CTkFont(size=12), text_color="gray",
-        )
-        self._adjusted_label.pack(side="left")
-
-        # Income this month (Seasonal + Variable income sources)
+        # Income this month
         self._income_container = ctk.CTkFrame(self, fg_color="transparent")
-        self._income_container.pack(fill="x", padx=24, pady=(0, 8))
+        self._income_container.pack(fill="x", padx=24, pady=(0, 0))
 
         # Save + status
         save_row = ctk.CTkFrame(self, fg_color="transparent")
-        save_row.pack(anchor="w", padx=24, pady=(0, 4))
-        ctk.CTkButton(save_row, text="Save Snapshot", width=140, command=self._save).pack(
-            side="left", padx=(0, 16)
-        )
-        self._status_label = ctk.CTkLabel(save_row, text="")
+        save_row.pack(anchor="w", padx=24, pady=(0, 2))
+        ctk.CTkButton(save_row, text="Save Snapshot", width=140,
+                      fg_color=_ACCENT, hover_color="#0096b4",
+                      text_color="white", corner_radius=8,
+                      command=self._save).pack(side="left", padx=(0, 16))
+        self._status_label = ctk.CTkLabel(save_row, text="", text_color=_TEXT_SEC)
         self._status_label.pack(side="left")
 
-        # Delete snapshot button (shown only when a snapshot exists for the period)
-        del_row = ctk.CTkFrame(self, fg_color="transparent")
-        del_row.pack(anchor="w", padx=24, pady=(0, 0))
+        # Delete snapshot button (row not packed until a snapshot exists)
+        self._del_row = ctk.CTkFrame(self, fg_color="transparent")
         self._delete_snap_btn = ctk.CTkButton(
-            del_row, text="Delete Snapshot", width=140,
-            fg_color="transparent", border_width=1,
-            text_color=_RED,
-            hover_color=("gray85", "gray20"),
+            self._del_row, text="Delete Snapshot", width=140,
+            fg_color=_BG_ELEM, hover_color="#3d1a1a",
+            text_color=_RED, corner_radius=8,
             command=self._delete_snapshot,
         )
-        # Initially hidden; shown from _load_existing when snapshot exists
-
-        # Mid-month estimation (rebuilt when period or buffer changes)
-        self._estimation_container = ctk.CTkFrame(self, fg_color="transparent")
-        self._estimation_container.pack(fill="x", padx=24, pady=(8, 32))
 
         self._load_existing()
 
     # ── Account rows ──────────────────────────────────────────────────────────
 
-    def _add_row(
-        self,
-        name: str = "",
-        balance: str = "",
-        is_investment: bool = False,
-    ) -> dict:
+    def _add_row(self, name: str = "", balance: str = "") -> dict:
         row_frame = ctk.CTkFrame(self._rows_frame, fg_color="transparent")
         row_frame.pack(anchor="w", pady=3, fill="x")
 
-        name_var          = ctk.StringVar(value=name)
-        balance_var       = ctk.StringVar(value=balance)
-        is_investment_var = ctk.BooleanVar(value=is_investment)
+        name_var    = ctk.StringVar(value=name)
+        balance_var = ctk.StringVar(value=balance)
 
         balance_var.trace_add("write", lambda *_: self._update_total())
 
         name_container = ctk.CTkFrame(row_frame, fg_color="transparent", corner_radius=0)
         name_container.pack(side="left", padx=(0, 8))
 
-        ctk.CTkEntry(
+        bal_entry = ctk.CTkEntry(
             row_frame, textvariable=balance_var,
             placeholder_text="0.00", width=150,
-        ).pack(side="left", padx=(0, 8))
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+        )
+        bal_entry.pack(side="left", padx=(0, 8))
+        bind_numeric_entry(bal_entry)
 
-        # Edit-mode controls container — packed/unpacked dynamically by _refresh_edit_controls
         edit_controls = ctk.CTkFrame(row_frame, fg_color="transparent", corner_radius=0)
 
         row = {
-            "frame":             row_frame,
-            "name_container":    name_container,
-            "name_var":          name_var,
-            "balance_var":       balance_var,
-            "is_investment_var": is_investment_var,
-            "edit_controls":     edit_controls,
+            "frame":          row_frame,
+            "name_container": name_container,
+            "name_var":       name_var,
+            "balance_var":    balance_var,
+            "edit_controls":  edit_controls,
         }
 
         self._rows.append(row)
@@ -250,30 +225,23 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             ctk.CTkEntry(
                 row["name_container"], textvariable=row["name_var"],
                 placeholder_text="Account name", width=300,
+                fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
             ).pack(side="left")
         else:
             display_name = row["name_var"].get() or "Unnamed"
             ctk.CTkLabel(
                 row["name_container"], text=display_name,
-                anchor="w", width=300,
+                anchor="w", width=300, text_color=_TEXT_PRI,
             ).pack(side="left")
 
     def _refresh_edit_controls(self, row: dict):
         for w in row["edit_controls"].winfo_children():
             w.destroy()
         if self._editing_accounts:
-            ctk.CTkCheckBox(
-                row["edit_controls"],
-                text="INV",
-                variable=row["is_investment_var"],
-                command=lambda r=row: self._update_total(),
-                width=60,
-            ).pack(side="left", padx=(0, 6))
             ctk.CTkButton(
                 row["edit_controls"], text="×", width=36, height=36,
-                fg_color="transparent", border_width=1,
-                text_color=("gray40", "gray60"),
-                hover_color=("gray85", "gray25"),
+                fg_color=_BG_ELEM, hover_color="#3d1a1a",
+                text_color=_RED, corner_radius=8,
                 command=lambda r=row: self._remove_row(r),
             ).pack(side="left")
             if row["edit_controls"].winfo_manager() != "pack":
@@ -337,24 +305,22 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             return
         year, month = period
 
-        # Reset edit mode BEFORE creating rows so checkboxes/× stay hidden
         self._editing_accounts = False
         if self._edit_accounts_btn:
             self._edit_accounts_btn.configure(text="Edit Accounts")
 
-        existing  = get_snapshot(year, month)
-        acc_flags = {a["name"]: a["is_investment"] for a in get_all_accounts_with_flags()}
+        existing = get_snapshot(year, month)
 
         self._clear_rows()
 
         if existing:
             for name, balance in existing.items():
-                is_inv = acc_flags.get(name, False)
-                self._add_row(name, f"{balance:.2f}", is_inv)
+                self._add_row(name, f"{balance:.2f}")
             self._set_status(
                 f"Showing saved data for {MONTHS[month - 1]} {year}. Edit fields and re-save to update.",
-                color="gray",
+                color=_TEXT_SEC,
             )
+            self._del_row.pack(anchor="w", padx=24, pady=(8, 0))
             self._delete_snap_btn.pack(side="left")
         else:
             today = date.today()
@@ -364,15 +330,13 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             else:
                 accounts_to_use = _DEFAULT_ACCOUNTS
             for name in accounts_to_use:
-                is_inv = acc_flags.get(name, False)
-                self._add_row(name, is_investment=is_inv)
+                self._add_row(name)
             self._set_status("")
             self._delete_snap_btn.pack_forget()
+            self._del_row.pack_forget()
 
         self._update_total()
-        self._editing_buffer = False
         self._render_income_section()
-        self._render_estimation()
 
     # ── Income this month ─────────────────────────────────────────────────────
 
@@ -380,6 +344,7 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         for w in self._income_container.winfo_children():
             w.destroy()
         self._income_amount_vars.clear()
+        self._extra_income_rows.clear()
 
         period = self._get_period()
         if period is None:
@@ -387,8 +352,6 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         year, month = period
 
         all_income = list(get_all_income())
-        # Show income sources active in this month
-        # active_months NULL or empty = active every month
         relevant: list[dict] = []
         for item in all_income:
             item = dict(item)
@@ -403,22 +366,27 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         if not relevant:
             return
 
-        # Load previously saved amounts for this period
         saved = get_snapshot_income(year, month)
 
-        card  = ctk.CTkFrame(self._income_container)
+        # Group saved extras by income_id
+        extras_by_id: dict[int, list[dict]] = {}
+        for e in get_extra_income(year, month):
+            extras_by_id.setdefault(e["income_id"], []).append(e)
+
+        card  = ctk.CTkFrame(self._income_container, fg_color=_BG_CARD, corner_radius=14,
+                             border_width=1, border_color=_BORDER)
         card.pack(fill="x")
         inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=16, pady=14)
+        inner.pack(fill="x", padx=20, pady=16)
 
         ctk.CTkLabel(
             inner, text="INCOME THIS MONTH",
-            text_color="gray", font=ctk.CTkFont(size=11),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=11),
         ).pack(anchor="w")
         ctk.CTkLabel(
             inner,
             text="Enter the actual amount received for each income source below.",
-            text_color="gray", font=ctk.CTkFont(size=12),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
         ).pack(anchor="w", pady=(2, 10))
 
         for item in relevant:
@@ -428,42 +396,112 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
             var = ctk.StringVar(value=default)
             self._income_amount_vars[iid] = var
+            self._extra_income_rows[iid] = []
 
+            # Main income row
             row = ctk.CTkFrame(inner, fg_color="transparent")
-            row.pack(fill="x", pady=2)
+            row.pack(fill="x", pady=(2, 0))
             ctk.CTkLabel(
-                row, text=item["name"], width=300, anchor="w",
+                row, text=item["name"], width=260, anchor="w",
+                text_color=_TEXT_PRI,
             ).pack(side="left")
-            ctk.CTkLabel(row, text="EUR", anchor="w").pack(side="left", padx=(0, 4))
-            ctk.CTkEntry(row, textvariable=var, width=110).pack(side="left")
+            ctk.CTkLabel(row, text="EUR", anchor="w",
+                         text_color=_TEXT_SEC).pack(side="left", padx=(0, 4))
+            inc_entry = ctk.CTkEntry(row, textvariable=var, width=110,
+                                     fg_color=_BG_ELEM, border_color=_BORDER,
+                                     text_color=_TEXT_PRI)
+            inc_entry.pack(side="left")
+            bind_numeric_entry(inc_entry)
+
+            # Sub-frame that holds all extra rows for this income source
+            extras_frame = ctk.CTkFrame(inner, fg_color="transparent", corner_radius=0)
+            # Don't pack yet - will be packed when first extra row is added
+
+            # Helper to add one extra row
+            def _add_extra_row(
+                income_id: int,
+                frame: ctk.CTkFrame,
+                desc: str = "",
+                amount: str = "",
+            ):
+                desc_var   = ctk.StringVar(value=desc)
+                amount_var = ctk.StringVar(value=amount)
+                entry_dict: dict = {}
+
+                if not frame.winfo_ismapped():
+                    frame.pack(fill="x", pady=0)
+
+                xrow = ctk.CTkFrame(frame, fg_color="transparent")
+                xrow.pack(fill="x", pady=1)
+
+                # 20px indent spacer
+                ctk.CTkFrame(xrow, fg_color="transparent", width=20).pack(side="left")
+
+                ctk.CTkEntry(
+                    xrow, textvariable=desc_var,
+                    placeholder_text="Description e.g. Bonus, Weihnachtsgeld",
+                    width=260,
+                    fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+                ).pack(side="left", padx=(0, 6))
+                ctk.CTkLabel(xrow, text="EUR", anchor="w",
+                             text_color=_TEXT_SEC).pack(side="left", padx=(0, 4))
+                extra_amt_entry = ctk.CTkEntry(
+                    xrow, textvariable=amount_var,
+                    placeholder_text="0.00", width=90,
+                    fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+                )
+                extra_amt_entry.pack(side="left")
+                bind_numeric_entry(extra_amt_entry)
+
+                entry_dict["frame"]      = xrow
+                entry_dict["desc_var"]   = desc_var
+                entry_dict["amount_var"] = amount_var
+                self._extra_income_rows[income_id].append(entry_dict)
+
+                def _remove(ed=entry_dict, iid=income_id):
+                    ed["frame"].destroy()
+                    self._extra_income_rows[iid].remove(ed)
+
+                ctk.CTkButton(
+                    xrow, text="×", width=28, height=28,
+                    fg_color=_BG_ELEM, hover_color="#3d1a1a",
+                    text_color=_RED, corner_radius=6,
+                    font=ctk.CTkFont(family=_F, size=13),
+                    command=_remove,
+                ).pack(side="left", padx=(6, 0))
+
+            # Pre-populate saved extras
+            for e in extras_by_id.get(iid, []):
+                _add_extra_row(iid, extras_frame,
+                               desc=e["description"],
+                               amount=f"{e['amount']:.2f}")
+
+            # "+ Add bonus" button on the main row
+            ctk.CTkButton(
+                row, text="+ Add bonus", width=90,
+                fg_color=_BG_ELEM, hover_color="#3d4d63",
+                text_color=_TEXT_SEC, corner_radius=8,
+                font=ctk.CTkFont(family=_F, size=11),
+                command=lambda i=iid, f=extras_frame: _add_extra_row(i, f),
+            ).pack(side="left", padx=(8, 0))
 
     # ── Totals ────────────────────────────────────────────────────────────────
 
     def _update_total(self):
-        net_worth  = 0.0
-        inv_total  = 0.0
+        total = 0.0
         for row in self._rows:
             try:
-                val = float(row["balance_var"].get())
+                total += float(row["balance_var"].get())
             except ValueError:
-                val = 0.0
-            if row["is_investment_var"].get():
-                inv_total += val
-            else:
-                net_worth += val
-        self._total_label.configure(text=fmt_eur(net_worth))
-        if inv_total > 0:
-            self._inv_total_label.configure(text=fmt_eur(inv_total))
-        else:
-            self._inv_total_label.configure(text="")
-        self._update_estimation_values(net_worth)
+                pass
+        self._total_label.configure(text=fmt_eur(total))
 
     # ── Save ──────────────────────────────────────────────────────────────────
 
     def _save(self):
         period = self._get_period()
         if period is None:
-            self._set_status("Invalid year.", color="#E74C3C")
+            self._set_status("Invalid year.", color=_RED)
             return
         year, month = period
 
@@ -476,31 +514,53 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             ):
                 return
 
-        balances:         dict[str, float] = {}
-        investment_flags: dict[str, bool]  = {}
+        balances: dict[str, float] = {}
 
         for row in self._rows:
             name = row["name_var"].get().strip()
             if not name:
-                self._set_status("Account name cannot be empty.", color="#E74C3C")
+                self._set_status("Account name cannot be empty.", color=_RED)
                 return
             try:
                 balance = float(row["balance_var"].get().strip() or "0")
             except ValueError:
-                self._set_status(f'Invalid balance for "{name}".', color="#E74C3C")
+                self._set_status(f'Invalid balance for "{name}".', color=_RED)
                 return
             balances[name] = balance
-            investment_flags[name] = row["is_investment_var"].get()
 
         if not balances:
-            self._set_status("Add at least one account before saving.", color="#E74C3C")
+            self._set_status("Add at least one account before saving.", color=_RED)
             return
 
-        total_snapshots = save_snapshot(year, month, balances)
-        for name, is_inv in investment_flags.items():
-            set_account_investment(name, is_inv)
+        if get_snapshot(year, month) is not None:
+            confirmed = [False]
+            month_name_str = date(year, month, 1).strftime("%B")
+            ow_dialog = open_dialog(self, 460, 160)
+            ow_dialog.title("Overwrite Snapshot")
+            ctk.CTkLabel(
+                ow_dialog,
+                text=f"A snapshot for {month_name_str} {year} already exists.\nDo you want to overwrite it?",
+                wraplength=420, justify="left",
+                font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_PRI,
+            ).pack(padx=20, pady=(20, 12))
+            ow_btn_row = ctk.CTkFrame(ow_dialog, fg_color="transparent")
+            ow_btn_row.pack()
+            ctk.CTkButton(ow_btn_row, text="Overwrite", width=110,
+                fg_color=_ACCENT, hover_color="#0096b4", text_color="white", corner_radius=8,
+                command=lambda: [confirmed.__setitem__(0, True), ow_dialog.destroy()],
+            ).pack(side="left", padx=(0, 8))
+            ctk.CTkButton(ow_btn_row, text="Cancel", width=80,
+                fg_color=_BG_ELEM, hover_color="#3d4d63",
+                text_color=_TEXT_PRI, corner_radius=8,
+                command=ow_dialog.destroy,
+            ).pack(side="left")
+            ow_dialog.wait_window()
+            unlock_scroll()
+            if not confirmed[0]:
+                return
 
-        # Save actual income amounts for seasonal/variable sources
+        total_snapshots = save_snapshot(year, month, balances)
+
         for income_id, var in self._income_amount_vars.items():
             try:
                 amount = float(var.get().strip() or "0")
@@ -508,25 +568,35 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             except ValueError:
                 pass
 
+        for income_id, rows in self._extra_income_rows.items():
+            clear_extra_income(year, month, income_id)
+            for rd in rows:
+                desc = rd["desc_var"].get().strip()
+                try:
+                    amount = float(rd["amount_var"].get().strip() or "0")
+                except ValueError:
+                    amount = 0.0
+                if desc or amount > 0:
+                    add_extra_income(year, month, income_id, desc, amount)
+
         month_name = MONTHS[month - 1]
 
         if total_snapshots == 1:
             self._set_status(
                 f"Snapshot saved for {month_name} {year}."
                 "  Add next month's data to see your first net worth change.",
-                color="#2CC985",
+                color=_GREEN,
             )
         else:
-            net_worth = sum(v for name, v in balances.items() if not investment_flags.get(name))
             self._set_status(
-                f"Snapshot saved for {month_name} {year}.  Net Worth: {fmt_eur(net_worth)}",
-                color="#2CC985",
+                f"Snapshot saved for {month_name} {year}.  Net Worth: {fmt_eur(sum(balances.values()))}",
+                color=_GREEN,
             )
 
+        self._del_row.pack(anchor="w", padx=24, pady=(8, 0))
         self._delete_snap_btn.pack(side="left")
         self._update_total()
-        self._render_estimation()
-        self._maybe_show_deduction_dialog(year, month, balances, investment_flags)
+        self._maybe_show_deduction_dialog(year, month, balances)
 
     # ── Delete Snapshot ───────────────────────────────────────────────────────
 
@@ -537,209 +607,13 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         year, month = period
         month_name = MONTHS[month - 1]
         if not self._confirm_dialog(
-            f"Delete snapshot for {month_name} {year}? This cannot be undone.",
+            f"Are you sure you want to delete the snapshot for {month_name} {year}?",
             confirm_text="Delete",
         ):
             return
         delete_snapshot(year, month)
         self._load_existing()
-        self._set_status(f"Snapshot for {month_name} {year} deleted.", color="gray")
-
-    # ── Mid-month estimation ──────────────────────────────────────────────────
-
-    def _render_estimation(self):
-        for w in self._estimation_container.winfo_children():
-            w.destroy()
-        self._est_eom_label  = None
-        self._est_total_cost = 0.0
-        self._adjusted_label.configure(text="")
-
-        period = self._get_period()
-        if period is None:
-            return
-        year, month = period
-
-        today = date.today()
-        if year != today.year or month != today.month:
-            return
-
-        last_day = calendar.monthrange(year, month)[1]
-        if today.day >= last_day:
-            return
-
-        if get_snapshot(year, month) is not None:
-            return
-
-        daily_buffer   = float(get_setting("daily_buffer") or "20.0")
-        remaining_days = last_day - today.day
-        expenses       = list(get_all_expenses())
-
-        all_fx               = list(expenses)
-        fx_total             = sum(e["amount"] for e in all_fx)
-        buffer_cost          = remaining_days * daily_buffer
-        self._est_total_cost = buffer_cost + fx_total
-
-        card  = ctk.CTkFrame(self._estimation_container)
-        card.pack(fill="x")
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=16, pady=14)
-
-        hdr = ctk.CTkFrame(inner, fg_color="transparent")
-        hdr.pack(fill="x")
-        hdr.columnconfigure(0, weight=1)
-        ctk.CTkLabel(hdr, text="MID-MONTH ESTIMATION", text_color="gray",
-                     font=ctk.CTkFont(size=11)).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(hdr, text=f"{MONTHS[today.month - 1]} {today.year}",
-                     text_color="gray", font=ctk.CTkFont(size=13)).grid(row=0, column=1, sticky="e")
-
-        ctk.CTkLabel(
-            inner,
-            text=f"{remaining_days} days remaining in {MONTHS[today.month - 1]}",
-            text_color="gray", font=ctk.CTkFont(size=12),
-        ).pack(anchor="w", pady=(4, 6))
-
-        buf_row = ctk.CTkFrame(inner, fg_color="transparent")
-        buf_row.pack(fill="x", pady=(0, 8))
-        ctk.CTkLabel(buf_row, text="Daily Spending Allowance:", anchor="w",
-                     text_color="gray", font=ctk.CTkFont(size=12)).pack(side="left")
-        if self._editing_buffer:
-            buf_var = ctk.StringVar(value=f"{daily_buffer:.1f}")
-            ctk.CTkEntry(buf_row, textvariable=buf_var, width=80).pack(side="left", padx=(8, 4))
-            ctk.CTkLabel(buf_row, text="EUR/day",
-                         font=ctk.CTkFont(size=12)).pack(side="left", padx=(0, 8))
-            ctk.CTkButton(buf_row, text="Save", width=56,
-                          command=lambda v=buf_var: self._save_buffer(v),
-                          ).pack(side="left", padx=(0, 4))
-            ctk.CTkButton(buf_row, text="Cancel", width=64,
-                          fg_color="transparent", border_width=1,
-                          command=self._cancel_buffer_edit,
-                          ).pack(side="left")
-        else:
-            ctk.CTkLabel(buf_row, text=f"€{daily_buffer:.0f}/day",
-                         font=ctk.CTkFont(size=12), anchor="w",
-                         ).pack(side="left", padx=(8, 8))
-            ctk.CTkButton(buf_row, text="Edit", width=48,
-                          fg_color="transparent", border_width=1,
-                          font=ctk.CTkFont(size=11),
-                          command=self._start_buffer_edit,
-                          ).pack(side="left")
-
-        ctk.CTkFrame(inner, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", pady=(0, 8)
-        )
-
-        def est_row(label: str, value: str, color=("gray90", "gray95"), small: bool = False):
-            r  = ctk.CTkFrame(inner, fg_color="transparent")
-            r.pack(fill="x", pady=1)
-            fs = ctk.CTkFont(size=11) if small else ctk.CTkFont(size=12)
-            ctk.CTkLabel(r, text=label, anchor="w", text_color="gray", font=fs).pack(side="left")
-            ctk.CTkLabel(r, text=value, anchor="e", text_color=color, font=fs).pack(side="right")
-
-        est_row(f"Daily Spending Allowance  ({remaining_days} days × €{daily_buffer:.0f}/day)",
-                f"–{fmt_eur(buffer_cost)}", _RED)
-
-        expenses_hdr = ctk.CTkFrame(inner, fg_color="transparent")
-        expenses_hdr.pack(fill="x", pady=(2, 0))
-        ctk.CTkLabel(expenses_hdr,
-                     text=f"Fixed expenses this month  ({len(all_fx)} items)",
-                     anchor="w", text_color="gray",
-                     font=ctk.CTkFont(size=12)).pack(side="left")
-        ctk.CTkLabel(expenses_hdr, text=f"–{fmt_eur(fx_total)}",
-                     anchor="e", text_color=_RED,
-                     font=ctk.CTkFont(size=12)).pack(side="right")
-
-        for e in all_fx:
-            d     = e["day_of_month"]
-            eff_d = effective_charge_day(today.year, today.month, d, last_day)
-            day_label = "end of month" if (d == 31 and last_day < 31) else f"day {eff_d}"
-            est_row(f"  · {e['name']}  ({day_label})",
-                    f"–{fmt_eur(e['amount'])}", _RED, small=True)
-
-        ctk.CTkFrame(inner, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", pady=(8, 8)
-        )
-
-        eom_row = ctk.CTkFrame(inner, fg_color="transparent")
-        eom_row.pack(fill="x")
-        ctk.CTkLabel(eom_row, text="Estimated end-of-month net worth",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
-
-        current_total = 0.0
-        for r in self._rows:
-            if not r["is_investment_var"].get():
-                try:
-                    current_total += float(r["balance_var"].get())
-                except ValueError:
-                    pass
-        estimated_eom = current_total - self._est_total_cost
-
-        self._est_eom_label = ctk.CTkLabel(
-            eom_row,
-            text=fmt_eur(estimated_eom),
-            font=ctk.CTkFont(size=13, weight="bold"),
-            text_color=_GREEN if estimated_eom >= 0 else _RED,
-        )
-        self._est_eom_label.pack(side="right")
-
-        ctk.CTkCheckBox(
-            inner,
-            text="Show adjusted net worth alongside actual total",
-            variable=self._include_estimation_var,
-            command=self._on_estimation_toggle,
-        ).pack(anchor="w", pady=(10, 0))
-
-    def _update_estimation_values(self, current_total: float):
-        if self._est_eom_label is None:
-            return
-        try:
-            estimated_eom = current_total - self._est_total_cost
-            self._est_eom_label.configure(
-                text=fmt_eur(estimated_eom),
-                text_color=_GREEN if estimated_eom >= 0 else _RED,
-            )
-        except Exception:
-            pass
-        self._update_adjusted_display(current_total)
-
-    def _update_adjusted_display(self, current_total: float | None = None):
-        if current_total is None:
-            current_total = 0.0
-            for r in self._rows:
-                if not r["is_investment_var"].get():
-                    try:
-                        current_total += float(r["balance_var"].get())
-                    except ValueError:
-                        pass
-        if self._include_estimation_var.get() and self._est_total_cost > 0:
-            adjusted = current_total - self._est_total_cost
-            color    = _GREEN if adjusted >= current_total else "gray"
-            self._adjusted_label.configure(
-                text=fmt_eur(adjusted), text_color=color,
-            )
-        else:
-            self._adjusted_label.configure(text="")
-
-    def _on_estimation_toggle(self):
-        self._update_adjusted_display()
-
-    def _start_buffer_edit(self):
-        self._editing_buffer = True
-        self._render_estimation()
-
-    def _save_buffer(self, buf_var: ctk.StringVar):
-        try:
-            value = float(buf_var.get().strip())
-            if value <= 0:
-                raise ValueError
-        except ValueError:
-            return
-        set_setting("daily_buffer", str(value))
-        self._editing_buffer = False
-        self._render_estimation()
-
-    def _cancel_buffer_edit(self):
-        self._editing_buffer = False
-        self._render_estimation()
+        self._set_status(f"Snapshot for {month_name} {year} deleted.", color=_TEXT_SEC)
 
     # ── Post-save deduction dialog ────────────────────────────────────────────
 
@@ -748,7 +622,6 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         year: int,
         month: int,
         balances: dict[str, float],
-        investment_flags: dict[str, bool],
     ):
         today = date.today()
         if year != today.year or month != today.month:
@@ -775,10 +648,9 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         if total_cost <= 0:
             return
 
-        # Only offer non-investment accounts for deduction
-        deduct_accounts = {k: v for k, v in balances.items() if not investment_flags.get(k)}
-        if not deduct_accounts:
+        if not balances:
             return
+        deduct_accounts = balances
 
         confirmed, account_name, actual_total = self._show_deduction_dialog(
             year, month, deduct_accounts, remaining_days, daily_buffer,
@@ -800,11 +672,10 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             new_balances[account_name] = new_balances[account_name] - actual_total
             save_snapshot(year, month, new_balances)
             self._load_existing()
-            net_new = sum(v for k, v in new_balances.items() if not investment_flags.get(k))
             self._set_status(
                 f"Snapshot saved for {MONTHS[month - 1]} {year}."
                 f"  Estimated remaining costs of {fmt_eur(actual_total)} deducted from {account_name}."
-                f"  Adjusted net worth: {fmt_eur(net_new)}",
+                f"  Adjusted net worth: {fmt_eur(sum(new_balances.values()))}",
                 color=_GREEN,
             )
 
@@ -821,12 +692,8 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
     ) -> tuple[bool, str, float]:
         result: list = [False, "", 0.0]
 
-        dialog = ctk.CTkToplevel(self)
+        dialog = open_dialog(self, 580, 520)
         dialog.title("Deduct Estimated Remaining Costs?")
-        dialog.resizable(False, False)
-        center_on_parent(dialog, self, 580, 520)
-        dialog.grab_set()
-        dialog.focus_set()
 
         scroll = ctk.CTkScrollableFrame(dialog, fg_color="transparent")
         scroll.pack(fill="both", expand=True)
@@ -836,20 +703,21 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         ctk.CTkLabel(
             inner, text="Deduct estimated remaining costs?",
-            font=ctk.CTkFont(size=15, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=15, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", pady=(0, 4))
         ctk.CTkLabel(
             inner,
             text=f"{remaining_days} day{'s' if remaining_days != 1 else ''} remaining "
                  f"in {MONTHS[month - 1]} {year}",
-            text_color="gray", font=ctk.CTkFont(size=12),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
         ).pack(anchor="w", pady=(0, 12))
 
-        def dlg_row(label: str, value: str, color=("gray90", "gray95"), small: bool = False):
+        def dlg_row(label: str, value: str, color=_TEXT_PRI, small: bool = False):
             r  = ctk.CTkFrame(inner, fg_color="transparent")
             r.pack(fill="x", pady=1)
-            fs = ctk.CTkFont(size=11) if small else ctk.CTkFont(size=12)
-            ctk.CTkLabel(r, text=label, anchor="w", text_color="gray", font=fs).pack(side="left")
+            fs = ctk.CTkFont(family=_F, size=11) if small else ctk.CTkFont(family=_F, size=12)
+            ctk.CTkLabel(r, text=label, anchor="w", text_color=_TEXT_SEC, font=fs).pack(side="left")
             ctk.CTkLabel(r, text=value, anchor="e", text_color=color, font=fs).pack(side="right")
 
         buffer_cost = remaining_days * daily_buffer
@@ -863,11 +731,11 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         exp_hdr.pack(fill="x", pady=(2, 0))
         ctk.CTkLabel(exp_hdr,
                      text=f"Remaining fixed expenses  ({len(remaining_fx)} items)",
-                     anchor="w", text_color="gray",
-                     font=ctk.CTkFont(size=12)).pack(side="left")
+                     anchor="w", text_color=_TEXT_SEC,
+                     font=ctk.CTkFont(family=_F, size=12)).pack(side="left")
         ctk.CTkLabel(exp_hdr, text=f"–{fmt_eur(fx_total)}",
                      anchor="e", text_color=_RED,
-                     font=ctk.CTkFont(size=12)).pack(side="right")
+                     font=ctk.CTkFont(family=_F, size=12)).pack(side="right")
 
         for e in remaining_fx:
             d     = e["day_of_month"]
@@ -876,37 +744,38 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             dlg_row(f"  · {e['name']}  ({day_label})",
                     f"–{fmt_eur(e['amount'])}", _RED, small=True)
 
-        ctk.CTkFrame(inner, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", pady=(8, 8)
-        )
+        ctk.CTkFrame(inner, height=1, fg_color=_BORDER).pack(fill="x", pady=(8, 8))
         subtotal_row = ctk.CTkFrame(inner, fg_color="transparent")
         subtotal_row.pack(fill="x")
         ctk.CTkLabel(subtotal_row, text="Estimated costs subtotal",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+                     font=ctk.CTkFont(family=_F, size=13, weight="bold"),
+                     text_color=_TEXT_PRI).pack(side="left")
         ctk.CTkLabel(subtotal_row, text=f"–{fmt_eur(total_cost)}",
-                     font=ctk.CTkFont(size=13, weight="bold"),
+                     font=ctk.CTkFont(family=_F, size=13, weight="bold"),
                      text_color=_RED).pack(side="right")
 
-        ctk.CTkFrame(inner, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", pady=(10, 8)
-        )
+        ctk.CTkFrame(inner, height=1, fg_color=_BORDER).pack(fill="x", pady=(10, 8))
         extra_row = ctk.CTkFrame(inner, fg_color="transparent")
         extra_row.pack(fill="x")
         ctk.CTkLabel(extra_row, text="Extra one-time cost:",
-                     font=ctk.CTkFont(size=13), anchor="w").pack(side="left", padx=(0, 8))
+                     font=ctk.CTkFont(family=_F, size=13), anchor="w",
+                     text_color=_TEXT_PRI).pack(side="left", padx=(0, 8))
         extra_var = ctk.StringVar(value="0.00")
-        ctk.CTkEntry(extra_row, textvariable=extra_var, width=110).pack(side="left", padx=(0, 6))
+        ctk.CTkEntry(extra_row, textvariable=extra_var, width=110,
+                     fg_color=_BG_ELEM, border_color=_BORDER,
+                     text_color=_TEXT_PRI).pack(side="left", padx=(0, 6))
         ctk.CTkLabel(extra_row, text="EUR",
-                     font=ctk.CTkFont(size=13)).pack(side="left")
+                     font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_PRI).pack(side="left")
         ctk.CTkLabel(inner, text="e.g. car insurance, dentist, travel",
-                     text_color="gray", font=ctk.CTkFont(size=11)).pack(anchor="w", pady=(2, 8))
+                     text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=11)).pack(anchor="w", pady=(2, 8))
 
         grand_row = ctk.CTkFrame(inner, fg_color="transparent")
         grand_row.pack(fill="x", pady=(0, 4))
         ctk.CTkLabel(grand_row, text="TOTAL TO DEDUCT",
-                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left")
+                     font=ctk.CTkFont(family=_F, size=13, weight="bold"),
+                     text_color=_TEXT_PRI).pack(side="left")
         grand_label = ctk.CTkLabel(grand_row, text=f"–{fmt_eur(total_cost)}",
-                                   font=ctk.CTkFont(size=13, weight="bold"),
+                                   font=ctk.CTkFont(family=_F, size=13, weight="bold"),
                                    text_color=_RED)
         grand_label.pack(side="right")
 
@@ -919,18 +788,19 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
 
         extra_var.trace_add("write", _update_grand)
 
-        ctk.CTkFrame(inner, height=1, fg_color=("gray80", "gray30")).pack(
-            fill="x", pady=(10, 8)
-        )
+        ctk.CTkFrame(inner, height=1, fg_color=_BORDER).pack(fill="x", pady=(10, 8))
         account_names = list(balances.keys())
         account_var   = ctk.StringVar(value=account_names[0] if account_names else "")
 
         sel_row = ctk.CTkFrame(inner, fg_color="transparent")
         sel_row.pack(fill="x")
         ctk.CTkLabel(sel_row, text="Deduct from:",
-                     font=ctk.CTkFont(size=13), anchor="w").pack(side="left", padx=(0, 12))
+                     font=ctk.CTkFont(family=_F, size=13), anchor="w",
+                     text_color=_TEXT_PRI).pack(side="left", padx=(0, 12))
         ctk.CTkOptionMenu(sel_row, values=account_names, variable=account_var,
-                          width=220).pack(side="left")
+                          width=220,
+                          fg_color=_BG_ELEM, button_color=_BG_ELEM,
+                          button_hover_color="#3d4d63", text_color=_TEXT_PRI).pack(side="left")
 
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack(fill="x", padx=20, pady=12)
@@ -948,14 +818,17 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         def on_skip():
             dialog.destroy()
 
-        ctk.CTkButton(btn_row, text="Yes, deduct", width=130, command=on_yes).pack(
-            side="left", padx=(0, 8)
-        )
+        ctk.CTkButton(btn_row, text="Yes, deduct", width=130,
+                      fg_color=_ACCENT, hover_color="#0096b4",
+                      text_color="white", corner_radius=8,
+                      command=on_yes).pack(side="left", padx=(0, 8))
         ctk.CTkButton(btn_row, text="Skip", width=80,
-                      fg_color="transparent", border_width=1,
+                      fg_color=_BG_ELEM, hover_color="#3d4d63",
+                      text_color=_TEXT_PRI, corner_radius=8,
                       command=on_skip).pack(side="left")
 
         dialog.wait_window()
+        unlock_scroll()
         return result[0], result[1], result[2]
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -964,15 +837,11 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
         self, message: str, *, confirm_text: str = "Confirm", cancel_text: str = "Cancel"
     ) -> bool:
         result = [False]
-        dialog = ctk.CTkToplevel(self)
+        dialog = open_dialog(self, 460, 150)
         dialog.title("Confirm")
-        dialog.resizable(False, False)
-        center_on_parent(dialog, self, 460, 150)
-        dialog.grab_set()
-        dialog.focus_set()
         ctk.CTkLabel(
             dialog, text=message, wraplength=420, justify="left",
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_PRI,
         ).pack(padx=20, pady=(20, 16))
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack()
@@ -981,16 +850,19 @@ class SnapshotEntryView(ctk.CTkScrollableFrame):
             result[0] = True
             dialog.destroy()
 
-        ctk.CTkButton(btn_row, text=confirm_text, width=110, command=on_confirm).pack(
-            side="left", padx=(0, 8)
-        )
+        ctk.CTkButton(btn_row, text=confirm_text, width=110,
+                      fg_color=_ACCENT, hover_color="#0096b4",
+                      text_color="white", corner_radius=8,
+                      command=on_confirm).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
             btn_row, text=cancel_text, width=80,
-            fg_color="transparent", border_width=1,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
             command=dialog.destroy,
         ).pack(side="left")
         dialog.wait_window()
+        unlock_scroll()
         return result[0]
 
-    def _set_status(self, text: str, color: str = "gray"):
+    def _set_status(self, text: str, color: str = _TEXT_SEC):
         self._status_label.configure(text=text, text_color=color)

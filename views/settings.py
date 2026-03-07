@@ -5,10 +5,18 @@ from tkinter import filedialog
 import customtkinter as ctk
 
 from database.db import DB_PATH, get_setting, set_setting, reset_all_data
-from utils import center_on_parent
+from utils import center_on_parent, lock_scroll, unlock_scroll, open_dialog
 
-_GREEN = "#2CC985"
-_RED   = "#E74C3C"
+# Premium dark theme palette
+_BG_CARD  = "#161f2e"
+_ACCENT   = "#00b4d8"
+_TEXT_PRI = "#e6edf3"
+_TEXT_SEC = "#8b949e"
+_BORDER   = "#2a3a52"
+_BG_ELEM  = "#21262d"
+_GREEN    = "#3fb950"
+_RED      = "#f85149"
+_F        = "Helvetica Neue"
 
 
 class SettingsView(ctk.CTkScrollableFrame):
@@ -28,21 +36,26 @@ class SettingsView(ctk.CTkScrollableFrame):
     def _build(self):
         ctk.CTkLabel(
             self, text="Settings",
-            font=ctk.CTkFont(size=22, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=22, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(24, 2))
         ctk.CTkLabel(
             self, text="Configure spending allowance, appearance, and data management.",
-            text_color="gray",
+            text_color=_TEXT_SEC,
         ).pack(anchor="w", padx=24, pady=(0, 20))
 
         # ── Daily Spending Allowance ──────────────────────────────────────────
         self._divider()
         ctk.CTkLabel(
             self, text="Daily Spending Allowance",
-            font=ctk.CTkFont(size=17, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=17, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(14, 6))
 
-        allowance_card = ctk.CTkFrame(self)
+        allowance_card = ctk.CTkFrame(
+            self, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
         allowance_card.pack(fill="x", padx=24, pady=(0, 8))
         allowance_inner = ctk.CTkFrame(allowance_card, fg_color="transparent")
         allowance_inner.pack(fill="x", padx=16, pady=14)
@@ -51,7 +64,7 @@ class SettingsView(ctk.CTkScrollableFrame):
             allowance_inner,
             text="Your estimated budget per day for variable spending (food, transport, leisure, etc.). "
                  "Used in mid-month estimation calculations.",
-            text_color="gray", font=ctk.CTkFont(size=12),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
             wraplength=700, justify="left",
         ).pack(anchor="w", pady=(0, 10))
 
@@ -63,17 +76,21 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._divider()
         ctk.CTkLabel(
             self, text="Appearance",
-            font=ctk.CTkFont(size=17, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=17, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(14, 6))
 
-        app_card = ctk.CTkFrame(self)
+        app_card = ctk.CTkFrame(
+            self, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
         app_card.pack(fill="x", padx=24, pady=(0, 8))
         app_inner = ctk.CTkFrame(app_card, fg_color="transparent")
         app_inner.pack(fill="x", padx=16, pady=14)
 
         ctk.CTkLabel(
             app_inner, text="Color theme:",
-            font=ctk.CTkFont(size=13),
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_PRI,
         ).pack(anchor="w", pady=(0, 8))
 
         current_mode = get_setting("appearance_mode") or "System"
@@ -92,42 +109,49 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._divider()
         ctk.CTkLabel(
             self, text="Data Management",
-            font=ctk.CTkFont(size=17, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=17, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(14, 6))
 
         ctk.CTkLabel(
             self,
             text="Back up your tracker database or restore from a previous backup. "
                  "The database contains all snapshots, expenses, income, and notes.",
-            text_color="gray", font=ctk.CTkFont(size=13),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=13),
             wraplength=700, justify="left",
         ).pack(anchor="w", padx=24, pady=(0, 12))
 
         backup_row = ctk.CTkFrame(self, fg_color="transparent")
         backup_row.pack(anchor="w", padx=24, pady=(0, 4))
         ctk.CTkButton(
-            backup_row, text="Backup Data", width=140, command=self._backup,
+            backup_row, text="Backup Data", width=140,
+            fg_color=_ACCENT, hover_color="#0096b4",
+            text_color="white", corner_radius=8,
+            command=self._backup,
         ).pack(side="left", padx=(0, 12))
-        self._backup_status = ctk.CTkLabel(backup_row, text="", font=ctk.CTkFont(size=12))
+        self._backup_status = ctk.CTkLabel(
+            backup_row, text="", font=ctk.CTkFont(family=_F, size=12),
+        )
         self._backup_status.pack(side="left")
 
         restore_row = ctk.CTkFrame(self, fg_color="transparent")
         restore_row.pack(anchor="w", padx=24, pady=(0, 4))
         ctk.CTkButton(
             restore_row, text="Restore Data", width=140,
-            fg_color="transparent", border_width=1,
-            text_color=(_RED, _RED),
-            hover_color=("gray85", "gray20"),
+            fg_color=_BG_ELEM, hover_color="#3d1a1a",
+            text_color=_RED, corner_radius=8,
             command=self._restore,
         ).pack(side="left", padx=(0, 12))
-        self._restore_status = ctk.CTkLabel(restore_row, text="", font=ctk.CTkFont(size=12))
+        self._restore_status = ctk.CTkLabel(
+            restore_row, text="", font=ctk.CTkFont(family=_F, size=12),
+        )
         self._restore_status.pack(side="left")
 
         ctk.CTkLabel(
             self,
             text="Restore replaces your current database with the backup and closes the app. "
                  "Reopen the app to see the restored data.",
-            text_color="gray", font=ctk.CTkFont(size=12),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=12),
             wraplength=700, justify="left",
         ).pack(anchor="w", padx=24, pady=(4, 0))
 
@@ -135,14 +159,15 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._divider()
         ctk.CTkLabel(
             self, text="Reset All Data",
-            font=ctk.CTkFont(size=17, weight="bold"),
+            font=ctk.CTkFont(family=_F, size=17, weight="bold"),
+            text_color=_TEXT_PRI,
         ).pack(anchor="w", padx=24, pady=(14, 6))
 
         ctk.CTkLabel(
             self,
             text="Permanently delete all snapshots, accounts, expenses, income, and notes. "
                  "Settings are reset to defaults. The app will close after reset.",
-            text_color="gray", font=ctk.CTkFont(size=13),
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=13),
             wraplength=700, justify="left",
         ).pack(anchor="w", padx=24, pady=(0, 12))
 
@@ -150,9 +175,8 @@ class SettingsView(ctk.CTkScrollableFrame):
         reset_row.pack(anchor="w", padx=24, pady=(0, 32))
         ctk.CTkButton(
             reset_row, text="Reset All Data", width=160,
-            fg_color="transparent", border_width=1,
-            text_color=(_RED, _RED),
-            hover_color=("gray85", "gray20"),
+            fg_color=_BG_ELEM, hover_color="#3d1a1a",
+            text_color=_RED, corner_radius=8,
             command=self._reset_data,
         ).pack(side="left")
 
@@ -166,18 +190,24 @@ class SettingsView(ctk.CTkScrollableFrame):
         daily = float(get_setting("daily_buffer") or "20.0")
         if self._editing_allowance:
             allowance_var = ctk.StringVar(value=f"{daily:.2f}")
-            ctk.CTkEntry(self._allowance_row, textvariable=allowance_var, width=100).pack(
-                side="left", padx=(0, 6)
-            )
-            ctk.CTkLabel(self._allowance_row, text="EUR / day",
-                         font=ctk.CTkFont(size=13)).pack(side="left", padx=(0, 14))
+            ctk.CTkEntry(
+                self._allowance_row, textvariable=allowance_var, width=100,
+                fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+            ).pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(
+                self._allowance_row, text="EUR / day",
+                font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_SEC,
+            ).pack(side="left", padx=(0, 14))
             ctk.CTkButton(
                 self._allowance_row, text="Save", width=72,
+                fg_color=_ACCENT, hover_color="#0096b4",
+                text_color="white", corner_radius=8,
                 command=lambda v=allowance_var: self._save_allowance(v),
             ).pack(side="left", padx=(0, 6))
             ctk.CTkButton(
                 self._allowance_row, text="Cancel", width=72,
-                fg_color="transparent", border_width=1,
+                fg_color=_BG_ELEM, hover_color="#3d4d63",
+                text_color=_TEXT_PRI, corner_radius=8,
                 command=self._cancel_allowance_edit,
             ).pack(side="left")
         else:
@@ -185,11 +215,13 @@ class SettingsView(ctk.CTkScrollableFrame):
             ctk.CTkLabel(
                 self._allowance_row,
                 text=f"{fmt_eur(daily)} / day",
-                font=ctk.CTkFont(size=20, weight="bold"),
+                font=ctk.CTkFont(family=_F, size=20, weight="bold"),
+                text_color=_TEXT_PRI,
             ).pack(side="left", padx=(0, 14))
             ctk.CTkButton(
                 self._allowance_row, text="Edit", width=64,
-                fg_color="transparent", border_width=1,
+                fg_color=_BG_ELEM, hover_color="#3d4d63",
+                text_color=_TEXT_PRI, corner_radius=8,
                 command=self._start_allowance_edit,
             ).pack(side="left")
 
@@ -228,7 +260,6 @@ class SettingsView(ctk.CTkScrollableFrame):
         today        = date.today()
         default_name = f"money-tracker-backup-{today.strftime('%Y-%m-%d')}.db"
         filepath = filedialog.asksaveasfilename(
-            defaultextension=".db",
             filetypes=[("Database files", "*.db"), ("All files", "*.*")],
             initialfile=default_name,
         )
@@ -246,12 +277,8 @@ class SettingsView(ctk.CTkScrollableFrame):
         if not filepath:
             return
         result = [False]
-        dialog = ctk.CTkToplevel(self)
+        dialog = open_dialog(self, 480, 180)
         dialog.title("Confirm Restore")
-        dialog.resizable(False, False)
-        center_on_parent(dialog, self, 480, 180)
-        dialog.grab_set()
-        dialog.focus_set()
         ctk.CTkLabel(
             dialog,
             text=(
@@ -259,7 +286,8 @@ class SettingsView(ctk.CTkScrollableFrame):
                 "This will replace ALL current data. The app will close — "
                 "reopen it to see the restored data."
             ),
-            wraplength=440, justify="left", font=ctk.CTkFont(size=13),
+            wraplength=440, justify="left", font=ctk.CTkFont(family=_F, size=13),
+            text_color=_TEXT_PRI,
         ).pack(padx=20, pady=(20, 16))
         btn_row = ctk.CTkFrame(dialog, fg_color="transparent")
         btn_row.pack()
@@ -268,15 +296,20 @@ class SettingsView(ctk.CTkScrollableFrame):
             result[0] = True
             dialog.destroy()
 
-        ctk.CTkButton(btn_row, text="Restore & Close", width=140, command=on_confirm).pack(
-            side="left", padx=(0, 8)
-        )
+        ctk.CTkButton(
+            btn_row, text="Restore & Close", width=140,
+            fg_color=_ACCENT, hover_color="#0096b4",
+            text_color="white", corner_radius=8,
+            command=on_confirm,
+        ).pack(side="left", padx=(0, 8))
         ctk.CTkButton(
             btn_row, text="Cancel", width=80,
-            fg_color="transparent", border_width=1,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
             command=dialog.destroy,
         ).pack(side="left")
         dialog.wait_window()
+        unlock_scroll()
         if result[0]:
             shutil.copy2(filepath, DB_PATH)
             self.winfo_toplevel().destroy()
@@ -285,21 +318,21 @@ class SettingsView(ctk.CTkScrollableFrame):
 
     def _reset_data(self):
         result = [False]
-        dialog = ctk.CTkToplevel(self)
+        dialog = open_dialog(self, 500, 220)
         dialog.title("Reset All Data")
-        dialog.resizable(False, False)
-        center_on_parent(dialog, self, 500, 220)
-        dialog.grab_set()
-        dialog.focus_set()
 
         ctk.CTkLabel(
             dialog,
             text="This will permanently delete ALL your data:\nsnapshots, accounts, expenses, income, and notes.\n\nType DELETE to confirm:",
-            wraplength=460, justify="left", font=ctk.CTkFont(size=13),
+            wraplength=460, justify="left", font=ctk.CTkFont(family=_F, size=13),
+            text_color=_TEXT_PRI,
         ).pack(padx=20, pady=(20, 8))
 
         confirm_var = ctk.StringVar()
-        entry = ctk.CTkEntry(dialog, textvariable=confirm_var, width=160)
+        entry = ctk.CTkEntry(
+            dialog, textvariable=confirm_var, width=160,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+        )
         entry.pack(padx=20, pady=(0, 12))
         entry.focus_set()
 
@@ -308,16 +341,16 @@ class SettingsView(ctk.CTkScrollableFrame):
 
         reset_btn = ctk.CTkButton(
             btn_row, text="Reset All Data", width=140,
-            fg_color="transparent", border_width=1,
-            text_color=(_RED, _RED),
-            hover_color=("gray85", "gray20"),
+            fg_color=_BG_ELEM, hover_color="#3d1a1a",
+            text_color=_RED, corner_radius=8,
             state="disabled",
             command=lambda: [result.__setitem__(0, True), dialog.destroy()],
         )
         reset_btn.pack(side="left", padx=(0, 8))
         ctk.CTkButton(
             btn_row, text="Cancel", width=80,
-            fg_color="transparent", border_width=1,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
             command=dialog.destroy,
         ).pack(side="left")
 
@@ -326,6 +359,7 @@ class SettingsView(ctk.CTkScrollableFrame):
 
         confirm_var.trace_add("write", on_change)
         dialog.wait_window()
+        unlock_scroll()
 
         if result[0]:
             reset_all_data()
@@ -334,6 +368,6 @@ class SettingsView(ctk.CTkScrollableFrame):
     # ── Helper ────────────────────────────────────────────────────────────────
 
     def _divider(self):
-        ctk.CTkFrame(self, height=1, fg_color=("gray80", "gray30")).pack(
+        ctk.CTkFrame(self, height=1, fg_color=_BORDER).pack(
             fill="x", padx=24, pady=(16, 0)
         )

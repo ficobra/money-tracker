@@ -87,9 +87,43 @@ def init_db():
                 UNIQUE(year, month, income_id)
             );
 
+            CREATE TABLE IF NOT EXISTS extra_income (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                year        INTEGER NOT NULL,
+                month       INTEGER NOT NULL,
+                income_id   INTEGER NOT NULL REFERENCES recurring_income(id) ON DELETE CASCADE,
+                description TEXT    NOT NULL DEFAULT '',
+                amount      REAL    NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS settings (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS portfolio_positions (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                ticker        TEXT    NOT NULL UNIQUE,
+                shares        REAL    NOT NULL,
+                avg_buy_price REAL    NOT NULL,
+                currency      TEXT    NOT NULL DEFAULT 'USD',
+                notes         TEXT    DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS portfolio_cache (
+                ticker         TEXT PRIMARY KEY,
+                price          REAL NOT NULL,
+                currency       TEXT NOT NULL DEFAULT 'USD',
+                day_change     REAL,
+                day_change_pct REAL,
+                name           TEXT,
+                updated_at     TEXT DEFAULT (datetime('now'))
+            );
+
+            CREATE TABLE IF NOT EXISTS portfolio_reminders (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                reminder_date TEXT    NOT NULL,
+                is_enabled    INTEGER NOT NULL DEFAULT 1
             );
 
             INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_buffer', '20.0');
@@ -119,6 +153,11 @@ def init_db():
             conn.execute("ALTER TABLE recurring_income ADD COLUMN income_type TEXT NOT NULL DEFAULT 'fixed'")
         if "active_months" not in ri_cols:
             conn.execute("ALTER TABLE recurring_income ADD COLUMN active_months TEXT DEFAULT NULL")
+
+        # Migrate portfolio_cache for price_eur
+        pc_cols = {row[1] for row in conn.execute("PRAGMA table_info(portfolio_cache)").fetchall()}
+        if "price_eur" not in pc_cols:
+            conn.execute("ALTER TABLE portfolio_cache ADD COLUMN price_eur REAL")
 
         # Seed default expenses on first run
         count = conn.execute("SELECT COUNT(*) FROM fixed_expenses").fetchone()[0]
@@ -180,31 +219,22 @@ def save_snapshot(
 
 
 def _build_snapshot_dict(snap: sqlite3.Row, conn: sqlite3.Connection) -> dict:
-    """Helper: build a full snapshot dict including balances and per-type totals.
-
-    total            = sum of non-investment account balances (Net Worth)
-    investment_total = sum of investment account balances (Portfolio value)
-    """
+    """Helper: build a full snapshot dict including balances and total net worth."""
     rows = conn.execute(
-        """SELECT a.name, sb.balance, a.is_investment
+        """SELECT a.name, sb.balance
            FROM snapshot_balances sb
            JOIN accounts a ON a.id = sb.account_id
            WHERE sb.snapshot_id = ?
            ORDER BY a.name""",
         (snap["id"],),
     ).fetchall()
-    balances            = {r["name"]: r["balance"] for r in rows}
-    investment_balances = {r["name"]: r["balance"] for r in rows if r["is_investment"]}
-    non_inv_total       = sum(r["balance"] for r in rows if not r["is_investment"])
-    inv_total           = sum(r["balance"] for r in rows if r["is_investment"])
+    balances = {r["name"]: r["balance"] for r in rows}
     return {
-        "id":                  snap["id"],
-        "year":                snap["year"],
-        "month":               snap["month"],
-        "balances":            balances,
-        "investment_balances": investment_balances,
-        "total":               non_inv_total,       # Net Worth (excl. investments)
-        "investment_total":    inv_total,
+        "id":       snap["id"],
+        "year":     snap["year"],
+        "month":    snap["month"],
+        "balances": balances,
+        "total":    sum(r["balance"] for r in rows),
     }
 
 
@@ -426,6 +456,45 @@ def set_snapshot_income(year: int, month: int, income_id: int, actual_amount: fl
         )
 
 
+# ── Extra income (one-time per-snapshot additions) ─────────────────────────────
+
+def get_extra_income(year: int, month: int) -> list[dict]:
+    """Return all extra income entries for the given snapshot period."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, income_id, description, amount"
+            " FROM extra_income WHERE year=? AND month=? ORDER BY id",
+            (year, month),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_extra_income(
+    year: int, month: int, income_id: int, description: str, amount: float
+) -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO extra_income (year, month, income_id, description, amount)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (year, month, income_id, description, amount),
+        )
+        return cur.lastrowid  # type: ignore[return-value]
+
+
+def delete_extra_income(entry_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM extra_income WHERE id=?", (entry_id,))
+
+
+def clear_extra_income(year: int, month: int, income_id: int):
+    """Delete all extra income entries for one income source in one month."""
+    with get_connection() as conn:
+        conn.execute(
+            "DELETE FROM extra_income WHERE year=? AND month=? AND income_id=?",
+            (year, month, income_id),
+        )
+
+
 # ── Earliest snapshot ──────────────────────────────────────────────────────────
 
 def get_earliest_snapshot() -> tuple[int, int] | None:
@@ -439,10 +508,104 @@ def get_earliest_snapshot() -> tuple[int, int] | None:
 
 # ── Reset ──────────────────────────────────────────────────────────────────────
 
+# ── Portfolio positions ────────────────────────────────────────────────────────
+
+def get_portfolio_positions() -> list[dict]:
+    """Return all portfolio positions ordered by ticker."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT id, ticker, shares, avg_buy_price, currency, notes"
+            " FROM portfolio_positions ORDER BY ticker"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def add_position(ticker: str, shares: float, avg_buy_price: float,
+                 currency: str = "USD", notes: str = "") -> int:
+    with get_connection() as conn:
+        cur = conn.execute(
+            "INSERT INTO portfolio_positions (ticker, shares, avg_buy_price, currency, notes)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (ticker.upper(), shares, avg_buy_price, currency, notes),
+        )
+        return cur.lastrowid  # type: ignore[return-value]
+
+
+def update_position(position_id: int, ticker: str, shares: float,
+                    avg_buy_price: float, currency: str, notes: str):
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE portfolio_positions SET ticker=?, shares=?, avg_buy_price=?,"
+            " currency=?, notes=? WHERE id=?",
+            (ticker.upper(), shares, avg_buy_price, currency, notes, position_id),
+        )
+
+
+def delete_position(position_id: int):
+    with get_connection() as conn:
+        conn.execute("DELETE FROM portfolio_positions WHERE id=?", (position_id,))
+
+
+def get_portfolio_cache() -> dict[str, dict]:
+    """Return {ticker: {price, price_eur, currency, day_change, day_change_pct, name, updated_at}}."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT ticker, price, price_eur, currency, day_change, day_change_pct, name, updated_at"
+            " FROM portfolio_cache"
+        ).fetchall()
+        return {r["ticker"]: dict(r) for r in rows}
+
+
+def upsert_portfolio_cache(ticker: str, price: float, currency: str,
+                           day_change: float | None, day_change_pct: float | None,
+                           name: str | None, price_eur: float | None = None):
+    with get_connection() as conn:
+        conn.execute(
+            "INSERT INTO portfolio_cache"
+            " (ticker, price, price_eur, currency, day_change, day_change_pct, name, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))"
+            " ON CONFLICT(ticker) DO UPDATE SET"
+            " price=excluded.price, price_eur=excluded.price_eur, currency=excluded.currency,"
+            " day_change=excluded.day_change, day_change_pct=excluded.day_change_pct,"
+            " name=excluded.name, updated_at=datetime('now')",
+            (ticker, price, price_eur, currency, day_change, day_change_pct, name),
+        )
+
+
+# ── Portfolio reminders ────────────────────────────────────────────────────────
+
+def get_portfolio_reminder() -> dict | None:
+    """Return {id, reminder_date, is_enabled} for the stored reminder, or None."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, reminder_date, is_enabled FROM portfolio_reminders LIMIT 1"
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_portfolio_reminder(reminder_date: str, is_enabled: int):
+    """Create or update the single portfolio reminder entry."""
+    with get_connection() as conn:
+        existing = conn.execute("SELECT id FROM portfolio_reminders LIMIT 1").fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE portfolio_reminders SET reminder_date=?, is_enabled=? WHERE id=?",
+                (reminder_date, is_enabled, existing["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO portfolio_reminders (reminder_date, is_enabled) VALUES (?, ?)",
+                (reminder_date, is_enabled),
+            )
+
+
+# ── Reset ──────────────────────────────────────────────────────────────────────
+
 def reset_all_data():
     """Delete all user data (snapshots, accounts, expenses, income, notes) and reset settings."""
     with get_connection() as conn:
         conn.executescript("""
+            DELETE FROM extra_income;
             DELETE FROM snapshot_income;
             DELETE FROM snapshot_balances;
             DELETE FROM snapshots;

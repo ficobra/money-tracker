@@ -37,3 +37,53 @@ def fmt_eur_signed(value: float) -> str:
     s  = f"{abs(value):,.2f}"
     eu = s.replace(",", "X").replace(".", ",").replace("X", ".")
     return f"+€{eu}" if value >= 0 else f"-€{eu}"
+
+
+# ── Scroll lock (blocks global scroll handler while dialogs are open) ──────────
+
+_scroll_locked: bool = False
+
+
+def lock_scroll() -> None:
+    global _scroll_locked
+    _scroll_locked = True
+
+
+def unlock_scroll() -> None:
+    global _scroll_locked
+    _scroll_locked = False
+
+
+def is_scroll_locked() -> bool:
+    return _scroll_locked
+
+
+def bind_numeric_entry(entry) -> None:
+    """Bind a CTkEntry to auto-convert comma to dot on KeyRelease and FocusOut."""
+    def _fix(_event=None):
+        val = entry.get()
+        if "," in val:
+            entry.delete(0, "end")
+            entry.insert(0, val.replace(",", "."))
+    entry.bind("<KeyRelease>", _fix, add=True)
+    entry.bind("<FocusOut>", _fix, add=True)
+
+
+def open_dialog(parent, width: int, height: int):
+    """Create a centered, scroll-locked modal CTkToplevel.
+
+    Usage:
+        dlg = open_dialog(self, 460, 160)
+        dlg.title("My Dialog")
+        # ... add widgets ...
+        dlg.wait_window()
+        unlock_scroll()
+    """
+    import customtkinter as ctk
+    dlg = ctk.CTkToplevel(parent)
+    dlg.resizable(False, False)
+    center_on_parent(dlg, parent, width, height)
+    lock_scroll()
+    dlg.grab_set()
+    dlg.focus_set()
+    return dlg

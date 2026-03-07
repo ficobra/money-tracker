@@ -4,13 +4,25 @@ import darkdetect
 from PIL import Image
 
 from database.db import init_db, get_setting
+from utils import is_scroll_locked
 from views.dashboard import DashboardView
 from views.snapshot_entry import SnapshotEntryView
 from views.expenses import ExpensesView
+from views.portfolio import PortfolioView
 from views.charts import ChartsView
 from views.notes import NotesView
 from views.settings import SettingsView
 from views.help import HelpView
+
+# ── Premium dark theme palette ─────────────────────────────────────────────────
+_BG_SIDEBAR = "#161b22"
+_BG_MAIN    = "#0d1117"
+_BG_CARD    = "#1a2332"
+_ACCENT     = "#00b4d8"
+_TEXT_PRI   = "#e6edf3"
+_TEXT_SEC   = "#8b949e"
+_BORDER     = "#3d4d63"
+_F          = "Helvetica Neue"
 
 
 class App(ctk.CTk):
@@ -31,73 +43,97 @@ class App(ctk.CTk):
 
         ctk.set_default_color_theme("blue")
 
+        self._active_nav_key: str | None = None
         self._build_layout()
         self._bind_global_scroll()
         self.show_view("dashboard")
 
     def _build_layout(self):
         # ── Sidebar ──────────────────────────────────────────────────────────
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
+        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0, fg_color=_BG_SIDEBAR)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
-        ctk.CTkLabel(
-            self.sidebar, text="Money Tracker",
-            font=ctk.CTkFont(size=17, weight="bold"),
-        ).pack(pady=(28, 20), padx=16)
-
-        # Main navigation tabs (top section)
-        nav_top = [
-            ("Dashboard",        "dashboard"),
-            ("Monthly Snapshot", "snapshot"),
-            ("Budget",           "expenses"),
-            ("Charts",           "charts"),
-            ("Notes",            "notes"),
-        ]
-        self._nav_buttons: dict[str, ctk.CTkButton] = {}
-        for label, key in nav_top:
-            btn = ctk.CTkButton(
-                self.sidebar, text=label, anchor="w",
-                fg_color="transparent",
-                text_color=("gray10", "gray90"),
-                command=lambda k=key: self.show_view(k),
-            )
-            btn.pack(padx=12, pady=3, fill="x")
-            self._nav_buttons[key] = btn
-
-        # Divider between main tabs and utility tabs
-        ctk.CTkFrame(self.sidebar, height=1, fg_color=("gray75", "gray35")).pack(
-            fill="x", padx=12, pady=(12, 8)
-        )
-
-        # Utility tabs (bottom section)
-        nav_bottom = [
-            ("Settings", "settings"),
-            ("Help",     "help"),
-        ]
-        for label, key in nav_bottom:
-            btn = ctk.CTkButton(
-                self.sidebar, text=label, anchor="w",
-                fg_color="transparent",
-                text_color=("gray10", "gray90"),
-                command=lambda k=key: self.show_view(k),
-            )
-            btn.pack(padx=12, pady=3, fill="x")
-            self._nav_buttons[key] = btn
-
-        # Flexible spacer — pushes icon + Exit to the very bottom of the sidebar
-        ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(fill="both", expand=True)
-
-        # App icon image
+        # App icon image — top of sidebar
         _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Money Tracker.png")
         try:
             _img = Image.open(_icon_path)
             _ctk_img = ctk.CTkImage(light_image=_img, dark_image=_img, size=(102, 102))
             ctk.CTkLabel(
                 self.sidebar, image=_ctk_img, text="",
-            ).pack(pady=(0, 8))
+            ).pack(pady=(16, 16))
         except Exception:
             pass
+
+        # ── Top group: primary tabs ───────────────────────────────────────────
+        nav_top = [
+            ("Dashboard",        "dashboard"),
+            ("Monthly Snapshot", "snapshot"),
+            ("Budget",           "expenses"),
+            ("Portfolio",        "portfolio"),
+            ("Analytics",        "charts"),
+        ]
+        self._nav_buttons: dict[str, ctk.CTkButton] = {}
+        for label, key in nav_top:
+            btn = ctk.CTkButton(
+                self.sidebar, text=label, anchor="w",
+                fg_color="transparent",
+                text_color=_TEXT_SEC,
+                hover_color=_BG_CARD,
+                font=ctk.CTkFont(family=_F, size=13),
+                corner_radius=8,
+                command=lambda k=key: self.show_view(k),
+            )
+            btn.pack(padx=12, pady=3, fill="x")
+            self._nav_buttons[key] = btn
+            self._bind_nav_hover(btn, key)
+
+        # ── Divider 1 ─────────────────────────────────────────────────────────
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=_BORDER).pack(
+            fill="x", padx=12, pady=(10, 8)
+        )
+
+        # ── Middle group: content tabs ────────────────────────────────────────
+        nav_mid = [
+            ("Notes", "notes"),
+            ("Help",  "help"),
+        ]
+        for label, key in nav_mid:
+            btn = ctk.CTkButton(
+                self.sidebar, text=label, anchor="w",
+                fg_color="transparent",
+                text_color=_TEXT_SEC,
+                hover_color=_BG_CARD,
+                font=ctk.CTkFont(family=_F, size=13),
+                corner_radius=8,
+                command=lambda k=key: self.show_view(k),
+            )
+            btn.pack(padx=12, pady=3, fill="x")
+            self._nav_buttons[key] = btn
+            self._bind_nav_hover(btn, key)
+
+        # ── Divider 2 ─────────────────────────────────────────────────────────
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=_BORDER).pack(
+            fill="x", padx=12, pady=(10, 8)
+        )
+
+        # ── Bottom group: Settings ────────────────────────────────────────────
+        for label, key in [("Settings", "settings")]:
+            btn = ctk.CTkButton(
+                self.sidebar, text=label, anchor="w",
+                fg_color="transparent",
+                text_color=_TEXT_SEC,
+                hover_color=_BG_CARD,
+                font=ctk.CTkFont(family=_F, size=13),
+                corner_radius=8,
+                command=lambda k=key: self.show_view(k),
+            )
+            btn.pack(padx=12, pady=3, fill="x")
+            self._nav_buttons[key] = btn
+            self._bind_nav_hover(btn, key)
+
+        # Flexible spacer — pushes Exit to the very bottom
+        ctk.CTkFrame(self.sidebar, fg_color="transparent").pack(fill="both", expand=True)
 
         # Exit App button — always anchored to the bottom
         ctk.CTkButton(
@@ -105,11 +141,13 @@ class App(ctk.CTk):
             fg_color="transparent",
             text_color="#FF4444",
             hover_color=("#ffcccc", "#5a1a1a"),
+            font=ctk.CTkFont(family=_F, size=13),
+            corner_radius=8,
             command=lambda: (self.quit(), self.destroy()),
         ).pack(padx=12, pady=(0, 16), fill="x")
 
         # ── Content area ─────────────────────────────────────────────────────
-        self.content = ctk.CTkFrame(self, corner_radius=0)
+        self.content = ctk.CTkFrame(self, corner_radius=0, fg_color=_BG_MAIN)
         self.content.pack(side="right", fill="both", expand=True)
 
         self._views: dict[str, ctk.CTkFrame] = {}
@@ -117,14 +155,29 @@ class App(ctk.CTk):
             "dashboard": lambda parent: DashboardView(parent, navigate=self.show_view),
             "snapshot":  SnapshotEntryView,
             "expenses":  ExpensesView,
+            "portfolio": PortfolioView,
             "charts":    ChartsView,
             "notes":     NotesView,
             "settings":  SettingsView,
             "help":      HelpView,
         }
 
+    def _bind_nav_hover(self, btn: ctk.CTkButton, key: str):
+        def on_enter(e):
+            if self._active_nav_key != key:
+                btn.configure(text_color=_TEXT_PRI)
+
+        def on_leave(e):
+            if self._active_nav_key != key:
+                btn.configure(text_color=_TEXT_SEC)
+
+        btn.bind("<Enter>", on_enter, add="+")
+        btn.bind("<Leave>", on_leave, add="+")
+
     def _bind_global_scroll(self):
         def on_scroll(event):
+            if is_scroll_locked():
+                return
             w = event.widget
             while w is not None:
                 if isinstance(w, ctk.CTkScrollableFrame):
@@ -137,11 +190,11 @@ class App(ctk.CTk):
                         if scroll_up and canvas.yview()[0] <= 0:
                             return
                         if hasattr(event, "delta") and event.delta:
-                            canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+                            canvas.yview_scroll(-3 if event.delta > 0 else 3, "units")
                         elif event.num == 4:
-                            canvas.yview_scroll(-1, "units")
+                            canvas.yview_scroll(-3, "units")
                         elif event.num == 5:
-                            canvas.yview_scroll(1, "units")
+                            canvas.yview_scroll(3, "units")
                         # Clamp: prevent over-scrolling above the top boundary
                         if canvas.yview()[0] < 0:
                             canvas.yview_moveto(0)
@@ -167,9 +220,31 @@ class App(ctk.CTk):
             view.refresh()
 
         # Highlight the active nav button
-        active_color = ("gray75", "gray30")
+        self._active_nav_key = name
         for key, btn in self._nav_buttons.items():
-            btn.configure(fg_color=active_color if key == name else "transparent")
+            is_active = key == name
+            btn.configure(
+                fg_color=_ACCENT if is_active else "transparent",
+                hover_color=_ACCENT if is_active else _BG_CARD,
+                text_color="white" if is_active else _TEXT_SEC,
+            )
+
+        # Subtle fade-in on content frame background
+        self._fade_step(0)
+
+    def _fade_step(self, step: int):
+        _colors = ["#050a12", "#080f1a", "#0b131e", "#0d1117", "#0d1117"]
+        if step < len(_colors):
+            try:
+                self.content.configure(fg_color=_colors[step])
+            except Exception:
+                pass
+            self.after(20, lambda s=step: self._fade_step(s + 1))
+        else:
+            try:
+                self.content.configure(fg_color=_BG_MAIN)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
