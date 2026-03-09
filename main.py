@@ -1,9 +1,11 @@
+import calendar
 import os
 import customtkinter as ctk
 import darkdetect
+from datetime import date
 from PIL import Image
 
-from database.db import init_db, get_setting
+from database.db import init_db, get_setting, get_snapshot, get_latest_snapshots
 from utils import is_scroll_locked
 from views.dashboard import DashboardView
 from views.snapshot_entry import SnapshotEntryView
@@ -46,6 +48,7 @@ class App(ctk.CTk):
         self._active_nav_key: str | None = None
         self._build_layout()
         self._bind_global_scroll()
+        self._check_startup_banner()
         self.show_view("dashboard")
 
     def _build_layout(self):
@@ -150,6 +153,13 @@ class App(ctk.CTk):
         self.content = ctk.CTkFrame(self, corner_radius=0, fg_color=_BG_MAIN)
         self.content.pack(side="right", fill="both", expand=True)
 
+        # Banner frame — packed at top when a reminder is active; hidden otherwise
+        self._banner_frame: ctk.CTkFrame | None = None
+
+        # View container — sits below the banner and holds all tab views
+        self._view_container = ctk.CTkFrame(self.content, corner_radius=0, fg_color=_BG_MAIN)
+        self._view_container.pack(fill="both", expand=True)
+
         self._views: dict[str, ctk.CTkFrame] = {}
         self._view_classes = {
             "dashboard": lambda parent: DashboardView(parent, navigate=self.show_view),
@@ -206,9 +216,72 @@ class App(ctk.CTk):
         self.bind_all("<Button-4>", on_scroll)
         self.bind_all("<Button-5>", on_scroll)
 
+    def _check_startup_banner(self):
+        if get_setting("notif_enabled") != "1":
+            return
+        today = date.today()
+        try:
+            banner_days = int(get_setting("banner_days") or "7")
+        except ValueError:
+            banner_days = 7
+        last_day  = calendar.monthrange(today.year, today.month)[1]
+        days_left = last_day - today.day
+        if days_left > banner_days:
+            return
+        if get_snapshot(today.year, today.month) is not None:
+            return
+
+        month_name = today.strftime("%B")
+        snaps = get_latest_snapshots(1)
+        if snaps:
+            s = snaps[0]
+            from calendar import month_name as _mnames
+            prev_label = f"{_mnames[s['month']]} {s['year']}"
+        else:
+            prev_label = "none"
+
+        self._show_startup_banner(month_name, days_left, prev_label)
+
+    def _show_startup_banner(self, month_name: str, days_left: int, prev_label: str):
+        if self._banner_frame is not None:
+            return
+        self._banner_frame = ctk.CTkFrame(
+            self.content, fg_color="#3d3000", corner_radius=0,
+        )
+        self._banner_frame.pack(fill="x", before=self._view_container)
+
+        inner = ctk.CTkFrame(self._banner_frame, fg_color="transparent")
+        inner.pack(fill="x", padx=16, pady=8)
+
+        text = (
+            f"⚠  {month_name} ending in {days_left} day{'s' if days_left != 1 else ''} — "
+            f"last snapshot was {prev_label}.  Click here to go to Monthly Snapshot →"
+        )
+        lbl = ctk.CTkLabel(
+            inner, text=text,
+            font=ctk.CTkFont(family=_F, size=13),
+            text_color="#f0c040", cursor="hand2",
+        )
+        lbl.pack(side="left")
+        lbl.bind("<Button-1>", lambda _e: self.show_view("snapshot"))
+
+        def dismiss():
+            if self._banner_frame:
+                self._banner_frame.pack_forget()
+                self._banner_frame.destroy()
+                self._banner_frame = None
+
+        ctk.CTkButton(
+            inner, text="×", width=28, height=28,
+            fg_color="transparent", hover_color="#5a4500",
+            text_color="#f0c040", corner_radius=6,
+            font=ctk.CTkFont(family=_F, size=16),
+            command=dismiss,
+        ).pack(side="right")
+
     def show_view(self, name: str):
         if name not in self._views:
-            self._views[name] = self._view_classes[name](self.content)
+            self._views[name] = self._view_classes[name](self._view_container)
 
         for v in self._views.values():
             v.pack_forget()

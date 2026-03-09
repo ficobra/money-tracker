@@ -315,6 +315,54 @@ _HELP_DATA = [
         ],
     },
     {
+        "section": "Notifications",
+        "items": [
+            {"type": "body", "text": (
+                "Money Tracker can remind you to enter your monthly snapshot via email and "
+                "an in-app banner. Configure both in Settings → Notifications."
+            )},
+            {"type": "heading", "text": "In-App Banner"},
+            {"type": "body", "text": (
+                "A yellow banner appears at the top of the app when you are within the "
+                "configured number of days before the end of the month and no snapshot has "
+                "been saved yet. Click the banner to go directly to Monthly Snapshot, or "
+                "dismiss it with ×. The banner is session-only — it reappears on the next "
+                "launch if the conditions are still met."
+            )},
+            {"type": "heading", "text": "Email Reminder"},
+            {"type": "body", "text": (
+                "Email reminders are sent via Resend (resend.com), a transactional email "
+                "service. Enable the toggle, enter your email address, and paste your "
+                "Resend API key. The reminder is sent once per month at 17:00 when you "
+                "are within the configured number of days before the end of the month "
+                "and no snapshot exists for that month yet."
+            )},
+            {"type": "heading", "text": "Resend API Key"},
+            {"type": "bullet", "text": "Create a free account at resend.com and generate an API key from the dashboard."},
+            {"type": "bullet", "text": "The free tier allows up to 100 emails/day and 3,000/month — more than enough for one reminder per month."},
+            {"type": "bullet", "text": "The default sender (onboarding@resend.dev) works without domain verification but can only deliver to your verified Resend account email."},
+            {"type": "bullet", "text": "To send to any email address, add and verify your own domain in Resend and update the sender in notifier.py."},
+            {"type": "heading", "text": "Reminder Days"},
+            {"type": "bullet", "text": "Email days (1–15): how many days before the end of the month the email is sent."},
+            {"type": "bullet", "text": "Banner days (1–15): how many days before the end of the month the in-app banner appears."},
+            {"type": "heading", "text": "Background Service (launchd)"},
+            {"type": "body", "text": (
+                "The email is sent by notifier.py, a standalone script run daily by macOS "
+                "launchd. The plist file is at "
+                "~/Library/LaunchAgents/com.moneytracker.notifier.plist. "
+                "Load it once with:"
+            )},
+            {"type": "bullet", "text": "launchctl load ~/Library/LaunchAgents/com.moneytracker.notifier.plist"},
+            {"type": "bullet", "text": "Verify: launchctl list | grep moneytracker"},
+            {"type": "bullet", "text": "Unload: launchctl unload ~/Library/LaunchAgents/com.moneytracker.notifier.plist"},
+            {"type": "body", "text": (
+                "Logs are written to ~/Library/Logs/MoneyTracker/notifier.log. "
+                "Use 'Send test email' in Settings to verify your API key before "
+                "relying on the scheduled service."
+            )},
+        ],
+    },
+    {
         "section": "Tips & Best Practices",
         "items": [
             {"type": "bullet", "text": "Enter your snapshot on the last day of each month for the most accurate data."},

@@ -155,9 +155,23 @@ The "Budget" tab is split into two sections:
 ### Settings (tab)
 - **Daily Spending Allowance**: editable EUR/day field (Edit/Save/Cancel); stored as `settings.daily_buffer`
 - **Appearance**: segmented button (System / Light / Dark); calls `ctk.set_appearance_mode()`; saved to `settings.appearance_mode`; applied on app startup in `main.py` after `init_db()`
+- **Notifications**: toggle (auto-saves), email field, Resend API key field (masked, `show="•"`), email_days + banner_days entries (1–15), Save button, Send test email button. API key stored as `base64.b64encode(key.encode()).decode()` in `settings.resend_api_key`; decoded on load. Test email and scheduled notifications sent via `resend` Python SDK in background thread. Settings keys: `notif_enabled` (0/1), `notif_email`, `resend_api_key` (base64), `email_days` (default 3), `banner_days` (default 7), `last_notification_sent` (YYYY-MM).
 - **Backup Data**: `filedialog.asksaveasfilename` WITHOUT `defaultextension` (omit it — `initialfile` already contains `.db`; adding `defaultextension=".db"` causes double extension on macOS); copies `DB_PATH` via `shutil.copy2`
 - **Restore Data**: `filedialog.askopenfilename`; confirmation dialog; copies file over `DB_PATH`; calls `self.winfo_toplevel().destroy()`
 - **Reset All Data**: user must type "DELETE" in confirmation dialog; calls `reset_all_data()` from db.py; closes app. `reset_all_data()` deletes all rows from: snapshot_income, snapshot_balances, snapshots, accounts, fixed_expenses, notes, recurring_income; resets daily_buffer to 20.0, my_notes to ''.
+
+### In-App Banner (main.py)
+- Shown on startup when: `notif_enabled=1`, today is within `banner_days` of end of month, and no snapshot for current month.
+- `_check_startup_banner()` called in `__init__` after `_build_layout()`. Creates a `_banner_frame` (fg_color `#3d3000`) packed at top of `self.content` before `self._view_container`.
+- Banner text is clickable (`cursor="hand2"`) → navigates to snapshot. Dismiss × button destroys the frame for the session.
+- Views are created inside `self._view_container` (not directly in `self.content`) so the banner can sit above them.
+
+### Background Notifier (notifier.py)
+- Standalone script at project root; run daily at 17:00 by launchd (`~/Library/LaunchAgents/com.moneytracker.notifier.plist`).
+- Reads DB directly (no imports from views); checks `notif_enabled`, date window, `last_notification_sent` (YYYY-MM), and whether snapshot exists.
+- Sends email via smtplib STARTTLS; updates `last_notification_sent` on success.
+- Logs to `~/Library/Logs/MoneyTracker/notifier.log`.
+- Load once: `launchctl load ~/Library/LaunchAgents/com.moneytracker.notifier.plist`
 
 ### Sidebar Layout (main.py)
 - **Top group**: Dashboard, Monthly Snapshot, Budget, Portfolio, Analytics

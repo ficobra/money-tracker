@@ -129,6 +129,12 @@ def init_db():
             INSERT OR IGNORE INTO settings (key, value) VALUES ('daily_buffer', '20.0');
             INSERT OR IGNORE INTO settings (key, value) VALUES ('my_notes', '');
             INSERT OR IGNORE INTO settings (key, value) VALUES ('appearance_mode', 'System');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('notif_enabled', '0');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('notif_email', '');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('resend_api_key', '');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('email_days', '3');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('banner_days', '7');
+            INSERT OR IGNORE INTO settings (key, value) VALUES ('last_notification_sent', '');
         """)
         # Migrate notes table for existing databases (add columns if missing)
         note_cols = {row[1] for row in conn.execute("PRAGMA table_info(notes)").fetchall()}

@@ -1,4 +1,6 @@
+import base64
 import shutil
+import threading
 from datetime import date
 from tkinter import filedialog
 
@@ -26,6 +28,13 @@ class SettingsView(ctk.CTkScrollableFrame):
         self._backup_status:  ctk.CTkLabel | None = None
         self._restore_status: ctk.CTkLabel | None = None
         self._allowance_row:  ctk.CTkFrame | None = None
+        # Notification section state
+        self._notif_enabled_var:  ctk.BooleanVar | None = None
+        self._notif_email_var:    ctk.StringVar  | None = None
+        self._resend_key_var:     ctk.StringVar  | None = None
+        self._email_days_var:     ctk.StringVar  | None = None
+        self._banner_days_var:    ctk.StringVar  | None = None
+        self._notif_save_status:  ctk.CTkLabel   | None = None
         self._build()
 
     def refresh(self):
@@ -104,6 +113,124 @@ class SettingsView(ctk.CTkScrollableFrame):
         ).pack(anchor="w")
 
         self._appearance_var = mode_var
+
+        # ── Notifications ─────────────────────────────────────────────────────
+        self._divider()
+        ctk.CTkLabel(
+            self, text="Notifications",
+            font=ctk.CTkFont(family=_F, size=17, weight="bold"),
+            text_color=_TEXT_PRI,
+        ).pack(anchor="w", padx=24, pady=(14, 6))
+        ctk.CTkLabel(
+            self,
+            text="Get reminded to enter your monthly snapshot via email and an in-app banner.",
+            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=13),
+            wraplength=700, justify="left",
+        ).pack(anchor="w", padx=24, pady=(0, 8))
+
+        notif_card = ctk.CTkFrame(
+            self, fg_color=_BG_CARD, corner_radius=14,
+            border_width=1, border_color=_BORDER,
+        )
+        notif_card.pack(fill="x", padx=24, pady=(0, 8))
+        notif_inner = ctk.CTkFrame(notif_card, fg_color="transparent")
+        notif_inner.pack(fill="x", padx=16, pady=14)
+
+        # ── Enable toggle ─────────────────────────────────────────────────────
+        self._notif_enabled_var = ctk.BooleanVar(value=get_setting("notif_enabled") == "1")
+        toggle_row = ctk.CTkFrame(notif_inner, fg_color="transparent")
+        toggle_row.pack(anchor="w", fill="x", pady=(0, 10))
+        ctk.CTkLabel(
+            toggle_row, text="Enable email notifications",
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_PRI,
+        ).pack(side="left")
+        ctk.CTkSwitch(
+            toggle_row, text="", variable=self._notif_enabled_var,
+            width=44, progress_color=_ACCENT,
+            command=self._on_notif_toggle,
+        ).pack(side="left", padx=(12, 0))
+
+        # ── Email field ───────────────────────────────────────────────────────
+        email_row = ctk.CTkFrame(notif_inner, fg_color="transparent")
+        email_row.pack(anchor="w", fill="x", pady=(0, 6))
+        ctk.CTkLabel(
+            email_row, text="Send to email:", width=140,
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_SEC, anchor="w",
+        ).pack(side="left")
+        self._notif_email_var = ctk.StringVar(value=get_setting("notif_email") or "")
+        ctk.CTkEntry(
+            email_row, textvariable=self._notif_email_var, width=280,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+            placeholder_text="you@example.com",
+        ).pack(side="left")
+
+        # ── Resend API Key ────────────────────────────────────────────────────
+        key_row = ctk.CTkFrame(notif_inner, fg_color="transparent")
+        key_row.pack(anchor="w", fill="x", pady=(0, 6))
+        ctk.CTkLabel(
+            key_row, text="Resend API key:", width=140,
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_SEC, anchor="w",
+        ).pack(side="left")
+        _stored_key = get_setting("resend_api_key") or ""
+        _decoded_key = ""
+        if _stored_key:
+            try:
+                _decoded_key = base64.b64decode(_stored_key.encode()).decode()
+            except Exception:
+                _decoded_key = ""
+        self._resend_key_var = ctk.StringVar(value=_decoded_key)
+        ctk.CTkEntry(
+            key_row, textvariable=self._resend_key_var, width=280,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+            placeholder_text="re_...", show="•",
+        ).pack(side="left")
+
+        # ── Days before end of month ──────────────────────────────────────────
+        days_row = ctk.CTkFrame(notif_inner, fg_color="transparent")
+        days_row.pack(anchor="w", fill="x", pady=(0, 6))
+        ctk.CTkLabel(
+            days_row, text="Email reminder (days before end of month):", width=300,
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_SEC, anchor="w",
+        ).pack(side="left")
+        self._email_days_var = ctk.StringVar(value=get_setting("email_days") or "3")
+        ctk.CTkEntry(
+            days_row, textvariable=self._email_days_var, width=60,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+        ).pack(side="left")
+
+        banner_days_row = ctk.CTkFrame(notif_inner, fg_color="transparent")
+        banner_days_row.pack(anchor="w", fill="x", pady=(0, 10))
+        ctk.CTkLabel(
+            banner_days_row, text="In-app banner (days before end of month):", width=300,
+            font=ctk.CTkFont(family=_F, size=13), text_color=_TEXT_SEC, anchor="w",
+        ).pack(side="left")
+        self._banner_days_var = ctk.StringVar(value=get_setting("banner_days") or "7")
+        ctk.CTkEntry(
+            banner_days_row, textvariable=self._banner_days_var, width=60,
+            fg_color=_BG_ELEM, border_color=_BORDER, text_color=_TEXT_PRI,
+        ).pack(side="left")
+
+        # ── Save + Test row ───────────────────────────────────────────────────
+        notif_btn_row = ctk.CTkFrame(notif_inner, fg_color="transparent")
+        notif_btn_row.pack(anchor="w", fill="x", pady=(4, 0))
+        ctk.CTkButton(
+            notif_btn_row, text="Save", width=80,
+            fg_color=_ACCENT, hover_color="#0096b4",
+            text_color="white", corner_radius=8,
+            font=ctk.CTkFont(family=_F, size=13),
+            command=self._save_notif_settings,
+        ).pack(side="left", padx=(0, 10))
+        ctk.CTkButton(
+            notif_btn_row, text="Send test email", width=130,
+            fg_color=_BG_ELEM, hover_color="#3d4d63",
+            text_color=_TEXT_PRI, corner_radius=8,
+            font=ctk.CTkFont(family=_F, size=13),
+            command=self._send_test_email,
+        ).pack(side="left", padx=(0, 10))
+        self._notif_save_status = ctk.CTkLabel(
+            notif_btn_row, text="", font=ctk.CTkFont(family=_F, size=12),
+        )
+        self._notif_save_status.pack(side="left")
 
         # ── Backup & Restore ──────────────────────────────────────────────────
         self._divider()
@@ -364,6 +491,73 @@ class SettingsView(ctk.CTkScrollableFrame):
         if result[0]:
             reset_all_data()
             self.winfo_toplevel().destroy()
+
+    # ── Notifications ─────────────────────────────────────────────────────────
+
+    def _on_notif_toggle(self):
+        set_setting("notif_enabled", "1" if self._notif_enabled_var.get() else "0")
+
+    def _save_notif_settings(self):
+        try:
+            ed = int(self._email_days_var.get().strip())
+            bd = int(self._banner_days_var.get().strip())
+            if not (1 <= ed <= 15) or not (1 <= bd <= 15):
+                raise ValueError
+        except ValueError:
+            if self._notif_save_status:
+                self._notif_save_status.configure(
+                    text="Days must be between 1 and 15.", text_color=_RED,
+                )
+            return
+
+        set_setting("notif_email", self._notif_email_var.get().strip())
+        set_setting("email_days",  str(ed))
+        set_setting("banner_days", str(bd))
+
+        key = self._resend_key_var.get().strip()
+        encoded_key = base64.b64encode(key.encode()).decode() if key else ""
+        set_setting("resend_api_key", encoded_key)
+
+        if self._notif_save_status:
+            self._notif_save_status.configure(text="Saved!", text_color=_GREEN)
+            self.after(3000, lambda: self._notif_save_status.configure(text="")
+                       if self._notif_save_status else None)
+
+    def _send_test_email(self):
+        if self._notif_save_status:
+            self._notif_save_status.configure(text="Sending…", text_color=_TEXT_SEC)
+
+        def do_send():
+            try:
+                import resend  # noqa: PLC0415
+                recipient = self._notif_email_var.get().strip()
+                key       = self._resend_key_var.get().strip()
+
+                if not recipient or not key:
+                    raise ValueError("Enter your email address and Resend API key first.")
+
+                resend.api_key = key
+                resend.Emails.send({
+                    "from": "Money Tracker <onboarding@resend.dev>",
+                    "to": [recipient],
+                    "subject": "Money Tracker — Test Email",
+                    "html": (
+                        "<p>This is a test email from <b>Money Tracker</b>.</p>"
+                        "<p>If you received this, your notification settings are working correctly.</p>"
+                        "<p>— Money Tracker</p>"
+                    ),
+                })
+
+                self.after(0, lambda: self._notif_save_status.configure(
+                    text="Test email sent!", text_color=_GREEN) if self._notif_save_status else None)
+                self.after(4000, lambda: self._notif_save_status.configure(text="")
+                           if self._notif_save_status else None)
+            except Exception as exc:
+                err = str(exc)[:80]
+                self.after(0, lambda e=err: self._notif_save_status.configure(
+                    text=f"Error: {e}", text_color=_RED) if self._notif_save_status else None)
+
+        threading.Thread(target=do_send, daemon=True).start()
 
     # ── Helper ────────────────────────────────────────────────────────────────
 
