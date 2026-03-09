@@ -1,0 +1,69 @@
+name: Build Money Tracker
+
+on:
+  release:
+    types: [created]
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build macOS app
+        run: |
+          pyinstaller --windowed --name "Money Tracker" \
+            --icon "Money_Tracker.icns" \
+            --add-data "views:views" \
+            --add-data "models:models" \
+            --add-data "database:database" \
+            --add-data "Money Tracker.png:." \
+            main.py --noconfirm
+          cd dist
+          zip -r "Money-Tracker-macOS.zip" "Money Tracker.app"
+      
+      - name: Upload macOS build
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/Money-Tracker-macOS.zip
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+      
+      - name: Build Windows exe
+        run: |
+          pyinstaller --windowed --name "Money Tracker" `
+            --add-data "views;views" `
+            --add-data "models;models" `
+            --add-data "database;database" `
+            --add-data "Money Tracker.png;." `
+            main.py --noconfirm
+          Compress-Archive -Path "dist\Money Tracker" `
+            -DestinationPath "dist\Money-Tracker-Windows.zip"
+      
+      - name: Upload Windows build
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/Money-Tracker-Windows.zip
