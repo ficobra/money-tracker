@@ -36,9 +36,14 @@ jobs:
           zip -r "Money-Tracker-macOS.zip" "Money Tracker.app"
       
       - name: Upload macOS build
-        uses: softprops/action-gh-release@v1
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: dist/Money-Tracker-macOS.zip
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: dist/Money-Tracker-macOS.zip
+          asset_name: Money-Tracker-macOS.zip
+          asset_content_type: application/zip
 
   build-windows:
     runs-on: windows-latest
@@ -67,6 +72,11 @@ jobs:
             -DestinationPath "dist\Money-Tracker-Windows.zip"
       
       - name: Upload Windows build
-        uses: softprops/action-gh-release@v1
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: dist/Money-Tracker-Windows.zip
+          upload_url: ${{ github.event.release.upload_url }}
+          asset_path: dist/Money-Tracker-Windows.zip
+          asset_name: Money-Tracker-Windows.zip
+          asset_content_type: application/zip
