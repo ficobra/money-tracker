@@ -1,7 +1,30 @@
+import os
+import platform
+import shutil
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "tracker.db"
+
+def _get_app_data_dir() -> Path:
+    system = platform.system()
+    if system == "Darwin":
+        return Path.home() / "Library" / "Application Support" / "MoneyTracker"
+    elif system == "Windows":
+        appdata = os.environ.get("APPDATA") or str(Path.home())
+        return Path(appdata) / "MoneyTracker"
+    else:
+        return Path.home() / ".local" / "share" / "MoneyTracker"
+
+
+_APP_DIR = _get_app_data_dir()
+_APP_DIR.mkdir(parents=True, exist_ok=True)
+
+DB_PATH = _APP_DIR / "tracker.db"
+
+# One-time migration: if new DB doesn't exist but old bundle DB does, copy it.
+_OLD_DB = Path(__file__).parent / "tracker.db"
+if not DB_PATH.exists() and _OLD_DB.exists():
+    shutil.copy2(_OLD_DB, DB_PATH)
 
 _DEFAULT_EXPENSES: list[tuple[int, str, float]] = [
     # (day_of_month, name, amount)

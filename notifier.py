@@ -15,8 +15,7 @@ from datetime import date
 from pathlib import Path
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-_SCRIPT_DIR = Path(__file__).resolve().parent
-_DB_PATH     = _SCRIPT_DIR / "database" / "tracker.db"
+_DB_PATH = Path.home() / "Library" / "Application Support" / "MoneyTracker" / "tracker.db"
 _LOG_DIR     = Path.home() / "Library" / "Logs" / "MoneyTracker"
 _LOG_FILE    = _LOG_DIR / "notifier.log"
 

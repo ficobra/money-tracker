@@ -270,7 +270,7 @@ money-tracker/
 ├── utils.py                 — fmt_eur(), fmt_eur_signed(), center_on_parent(), effective_charge_day(), lock_scroll(), unlock_scroll(), is_scroll_locked(), open_dialog()
 ├── database/
 │   ├── db.py                — All DB ops; settings keys: daily_buffer, my_notes, appearance_mode
-│   └── tracker.db
+│   └── (no tracker.db — DB lives at ~/Library/Application Support/MoneyTracker/tracker.db)
 ├── views/
 │   ├── dashboard.py         — Dashboard; Snapshot History grid; reminder banner
 │   ├── snapshot_entry.py    — Monthly Snapshot; income section (active_months based)
@@ -282,6 +282,8 @@ money-tracker/
 │   └── help.py              — Help tab (generic, no personal references)
 └── requirements.txt
 ```
+
+**DB location**: `~/Library/Application Support/MoneyTracker/tracker.db` (macOS); `%APPDATA%/MoneyTracker/tracker.db` (Windows). Created automatically on first launch. One-time migration copies old bundle DB if present.
 
 ## Key DB Functions
 - `get_snapshot(year, month)` → dict[name→balance] or None
