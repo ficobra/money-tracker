@@ -26,3 +26,6 @@ database/*.sqlite
 
 # Icons
 icon.iconset/
+
+# Resend API key
+.resend_api.txt
