@@ -166,12 +166,14 @@ The "Budget" tab is split into two sections:
 - Banner text is clickable (`cursor="hand2"`) → navigates to snapshot. Dismiss × button destroys the frame for the session.
 - Views are created inside `self._view_container` (not directly in `self.content`) so the banner can sit above them.
 
-### Background Notifier (notifier.py)
-- Standalone script at project root; run daily at 17:00 by launchd (`~/Library/LaunchAgents/com.moneytracker.notifier.plist`).
-- Reads DB directly (no imports from views); checks `notif_enabled`, date window, `last_notification_sent` (YYYY-MM), and whether snapshot exists.
-- Sends email via smtplib STARTTLS; updates `last_notification_sent` on success.
-- Logs to `~/Library/Logs/MoneyTracker/notifier.log`.
-- Load once: `launchctl load ~/Library/LaunchAgents/com.moneytracker.notifier.plist`
+### Background Notifier (GitHub Actions)
+- **Primary notifier**: `.github/workflows/notify.yml` — runs daily at 15:00 UTC (17:00 CET) via cron.
+- **Script**: `scripts/notify.py` — standalone, no app imports; reads all config from environment variables.
+- **Logic**: checks `days_left <= NOTIFICATION_DAYS`; checks `LAST_NOTIFICATION_SENT` repo variable to skip if already sent this month; sends via Resend API; updates `LAST_NOTIFICATION_SENT` variable on success.
+- **Secrets** (set in repo Settings → Secrets → Actions): `RESEND_API_KEY`, `NOTIFICATION_EMAIL`.
+- **Variables** (set in repo Settings → Variables → Actions): `NOTIFICATION_DAYS` (default 3), `LAST_NOTIFICATION_SENT` (managed automatically by workflow).
+- `workflow_dispatch` trigger allows manual test runs from the Actions tab.
+- **Legacy**: `notifier.py` at project root is the old launchd-based notifier (macOS-only, reads DB directly). Superseded by the GitHub Actions workflow.
 
 ### Sidebar Layout (main.py)
 - **Top group**: Dashboard, Monthly Snapshot, Budget, Portfolio, Analytics

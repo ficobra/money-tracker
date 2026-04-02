@@ -1,0 +1,41 @@
+name: Snapshot Reminder
+
+on:
+  schedule:
+    - cron: '0 15 * * *'   # 15:00 UTC = 17:00 CET
+  workflow_dispatch:         # allow manual test runs
+
+permissions:
+  actions: write   # needed to update LAST_NOTIFICATION_SENT variable
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install resend
+
+      - name: Run notifier
+        id: notifier
+        env:
+          RESEND_API_KEY:            ${{ secrets.RESEND_API_KEY }}
+          NOTIFICATION_EMAIL:        ${{ secrets.NOTIFICATION_EMAIL }}
+          NOTIFICATION_DAYS:         ${{ vars.NOTIFICATION_DAYS }}
+          LAST_NOTIFICATION_SENT:    ${{ vars.LAST_NOTIFICATION_SENT }}
+        run: python scripts/notify.py
+
+      - name: Update last-sent variable
+        if: steps.notifier.outputs.sent == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh variable set LAST_NOTIFICATION_SENT \
+            --body "${{ steps.notifier.outputs.sent_month }}"
