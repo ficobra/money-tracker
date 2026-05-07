@@ -70,11 +70,11 @@ class App(ctk.CTk):
 
         # ── Top group: primary tabs ───────────────────────────────────────────
         nav_top = [
-            ("Dashboard",        "dashboard"),
-            ("Monthly Snapshot", "snapshot"),
-            ("Budget",           "expenses"),
-            ("Portfolio",        "portfolio"),
-            ("Analytics",        "charts"),
+            ("⊞  Dashboard",        "dashboard"),
+            ("◷  Monthly Snapshot", "snapshot"),
+            ("¤  Budget",           "expenses"),
+            ("◈  Portfolio",        "portfolio"),
+            ("∿  Analytics",        "charts"),
         ]
         self._nav_buttons: dict[str, ctk.CTkButton] = {}
         for label, key in nav_top:
@@ -98,8 +98,8 @@ class App(ctk.CTk):
 
         # ── Middle group: content tabs ────────────────────────────────────────
         nav_mid = [
-            ("Notes", "notes"),
-            ("Help",  "help"),
+            ("✎  Notes", "notes"),
+            ("?  Help",  "help"),
         ]
         for label, key in nav_mid:
             btn = ctk.CTkButton(
@@ -121,7 +121,7 @@ class App(ctk.CTk):
         )
 
         # ── Bottom group: Settings ────────────────────────────────────────────
-        for label, key in [("Settings", "settings")]:
+        for label, key in [("⚙  Settings", "settings")]:
             btn = ctk.CTkButton(
                 self.sidebar, text=label, anchor="w",
                 fg_color="transparent",

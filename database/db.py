@@ -188,6 +188,13 @@ def init_db():
         if "price_eur" not in pc_cols:
             conn.execute("ALTER TABLE portfolio_cache ADD COLUMN price_eur REAL")
 
+        # Migrate snapshots for portfolio_eur
+        try:
+            conn.execute("ALTER TABLE snapshots ADD COLUMN portfolio_eur REAL DEFAULT 0.0")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
+
         # Seed default expenses on first run
         count = conn.execute("SELECT COUNT(*) FROM fixed_expenses").fetchone()[0]
         if count == 0:
@@ -259,11 +266,12 @@ def _build_snapshot_dict(snap: sqlite3.Row, conn: sqlite3.Connection) -> dict:
     ).fetchall()
     balances = {r["name"]: r["balance"] for r in rows}
     return {
-        "id":       snap["id"],
-        "year":     snap["year"],
-        "month":    snap["month"],
-        "balances": balances,
-        "total":    sum(r["balance"] for r in rows),
+        "id":            snap["id"],
+        "year":          snap["year"],
+        "month":         snap["month"],
+        "balances":      balances,
+        "total":         sum(r["balance"] for r in rows),
+        "portfolio_eur": snap["portfolio_eur"] or 0.0,
     }
 
 
@@ -271,7 +279,7 @@ def get_all_snapshots() -> list[dict]:
     """Return every snapshot in chronological order (oldest first) with balances and total."""
     with get_connection() as conn:
         snaps = conn.execute(
-            "SELECT id, year, month FROM snapshots ORDER BY year ASC, month ASC"
+            "SELECT id, year, month, portfolio_eur FROM snapshots ORDER BY year ASC, month ASC"
         ).fetchall()
         return [_build_snapshot_dict(s, conn) for s in snaps]
 
@@ -280,10 +288,19 @@ def get_latest_snapshots(limit: int = 2) -> list[dict]:
     """Return the N most recent snapshots (newest first) with balances and total."""
     with get_connection() as conn:
         snaps = conn.execute(
-            "SELECT id, year, month FROM snapshots ORDER BY year DESC, month DESC LIMIT ?",
+            "SELECT id, year, month, portfolio_eur FROM snapshots ORDER BY year DESC, month DESC LIMIT ?",
             (limit,),
         ).fetchall()
         return [_build_snapshot_dict(s, conn) for s in snaps]
+
+
+def update_snapshot_portfolio(year: int, month: int, portfolio_eur: float) -> None:
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE snapshots SET portfolio_eur = ? WHERE year = ? AND month = ?",
+            (portfolio_eur, year, month),
+        )
+        conn.commit()
 
 
 def count_snapshots() -> int:

@@ -279,7 +279,7 @@ class ChartsView(ctk.CTkScrollableFrame):
         pal   = _palette()
         snaps = self._filter_snaps(snapshots, self._nw_filter)
 
-        card  = self._make_card("Net Worth Over Time (excl. investments)")
+        card  = self._make_card("Net Worth Over Time")
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.pack(fill="x", padx=16, pady=(0, 8))
 
@@ -288,8 +288,16 @@ class ChartsView(ctk.CTkScrollableFrame):
                                lambda o: self._set_nw_filter(o))
 
         if snaps:
-            current_val = snaps[-1]["total"]
-            prev_val    = snaps[-2]["total"] if len(snaps) >= 2 else None
+            y_vals        = [s["total"] for s in snaps]
+            x_port        = [i for i, s in enumerate(snaps) if s.get("portfolio_eur", 0.0) > 0]
+            y_total_port  = [s["total"] + s["portfolio_eur"] for s in snaps if s.get("portfolio_eur", 0.0) > 0]
+            has_portfolio = len(x_port) > 0
+            if has_portfolio:
+                current_val = y_total_port[-1]
+                prev_val    = y_total_port[-2] if len(y_total_port) >= 2 else (y_vals[-2] if len(snaps) >= 2 else None)
+            else:
+                current_val = y_vals[-1]
+                prev_val    = y_vals[-2] if len(snaps) >= 2 else None
             self._build_chart_header(inner, current_val, prev_val)
 
         if not snaps:
@@ -299,7 +307,6 @@ class ChartsView(ctk.CTkScrollableFrame):
             return
 
         labels = [_snap_label(s) for s in snaps]
-        y_vals = [s["total"] for s in snaps]
         x      = list(range(len(snaps)))
 
         fig = Figure(figsize=(_FIG_W, _FIG_H), dpi=100)
@@ -307,13 +314,32 @@ class ChartsView(ctk.CTkScrollableFrame):
         _apply_style(fig, ax, pal)
 
         if len(snaps) >= 2:
-            x_np = np.array(x, dtype=float)
-            y_np = np.array(y_vals, dtype=float)
-            x_s  = np.linspace(0, len(snaps) - 1, 300)
-            y_s  = np.interp(x_s, x_np, y_np)
-            ax.plot(x_s, y_s, color=_ACCENT, linewidth=2, zorder=3)
-            y_min = min(y_s) - abs(max(y_s) - min(y_s)) * 0.1
-            ax.fill_between(x_s, y_s, y_min, alpha=0.15, color=_ACCENT, zorder=2)
+            x_np   = np.array(x, dtype=float)
+            x_s    = np.linspace(0, len(snaps) - 1, 300)
+            y_np   = np.array(y_vals, dtype=float)
+            y_s    = np.interp(x_s, x_np, y_np)
+            ax.plot(x_s, y_s, color=_ACCENT, linewidth=2, label="Excl. portfolio", zorder=3)
+            y_floor = min(y_s) - abs(max(y_s) - min(y_s)) * 0.1
+            ax.fill_between(x_s, y_s, y_floor, alpha=0.15, color=_ACCENT, zorder=2)
+            if has_portfolio:
+                if len(x_port) >= 2:
+                    xp_np = np.array(x_port, dtype=float)
+                    xp_s  = np.linspace(x_port[0], x_port[-1], 300)
+                    yp_np = np.array(y_total_port, dtype=float)
+                    yp_s  = np.interp(xp_s, xp_np, yp_np)
+                    ax.plot(xp_s, yp_s, color=_GREEN, linewidth=2, label="Incl. portfolio", zorder=4)
+                else:
+                    ax.plot(x_port, y_total_port, color=_GREEN, linewidth=2,
+                            marker="o", markersize=5, label="Incl. portfolio", zorder=4)
+                legend = ax.legend(
+                    loc="upper left",
+                    frameon=True,
+                    facecolor=_BG_CARD,
+                    edgecolor="none",
+                    labelcolor=_TEXT_PRI,
+                    fontsize=10,
+                )
+                legend.get_frame().set_alpha(1.0)
         else:
             ax.plot(x, y_vals, color=_ACCENT, linewidth=2,
                     marker="o", markersize=5, zorder=3)

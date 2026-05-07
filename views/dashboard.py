@@ -105,6 +105,9 @@ class DashboardView(ctk.CTkScrollableFrame):
         # ── Mid-month estimation (packed dynamically — not pre-packed) ───────────
         self._estimation_container = ctk.CTkFrame(self, fg_color="transparent")
 
+        # ── Prediction accuracy (packed dynamically — not pre-packed) ─────────
+        self._prediction_container = ctk.CTkFrame(self, fg_color="transparent")
+
         # ── Annual overview ────────────────────────────────────────────────────
         self._annual_divider = ctk.CTkFrame(self, height=1, fg_color=_BORDER)
         self._annual_divider.pack(fill="x", padx=24, pady=(4, 4))
@@ -250,6 +253,7 @@ class DashboardView(ctk.CTkScrollableFrame):
             self._render_one_snapshot()
 
         self._render_estimation(latest, expenses)
+        self._render_prediction_accuracy(all_snaps)
         self._render_annual()
         self._render_snapshot_history()
         self._render_breakdown(latest, prev)
@@ -333,7 +337,6 @@ class DashboardView(ctk.CTkScrollableFrame):
 
         latest     = snapshots[0] if snapshots else None
         prev_snap  = snapshots[1] if len(snapshots) >= 2 else None
-        prev2_snap = snapshots[2] if len(snapshots) >= 3 else None
 
         # Portfolio data
         positions     = get_portfolio_positions()
@@ -361,25 +364,24 @@ class DashboardView(ctk.CTkScrollableFrame):
             self._nw_portfolio_lbl.pack(anchor="w", before=self._nw_spark)
 
         # Income data
-        last_mo_income  = 0.0
-        prev_month_name = ""
-        pct_change      = 0.0
-        pct_color       = _TEXT_SEC
-        has_pct         = False
-        if prev_snap:
-            si = get_snapshot_income(prev_snap["year"], prev_snap["month"])
-            ex = get_extra_income(prev_snap["year"], prev_snap["month"])
-            last_mo_income  = (sum(si.values()) + sum(e["amount"] for e in ex)) if si else 0.0
-            prev_month_name = MONTHS[prev_snap["month"] - 1]
-            if prev2_snap:
-                si2 = get_snapshot_income(prev2_snap["year"], prev2_snap["month"])
-                ex2 = get_extra_income(prev2_snap["year"], prev2_snap["month"])
-                prev2_income = (sum(si2.values()) + sum(e["amount"] for e in ex2)) if si2 else 0.0
-                if prev2_income > 0:
-                    pct_change = (last_mo_income - prev2_income) / prev2_income * 100
+        last_mo_income = 0.0
+        pct_change     = 0.0
+        pct_color      = _TEXT_SEC
+        has_pct        = False
+        if latest:
+            si = get_snapshot_income(latest["year"], latest["month"])
+            ex = get_extra_income(latest["year"], latest["month"])
+            last_mo_income = (sum(si.values()) + sum(e["amount"] for e in ex)) if si else 0.0
+            if prev_snap:
+                si2 = get_snapshot_income(prev_snap["year"], prev_snap["month"])
+                ex2 = get_extra_income(prev_snap["year"], prev_snap["month"])
+                prev_income      = (sum(si2.values()) + sum(e["amount"] for e in ex2)) if si2 else 0.0
+                prev_month_label = MONTHS[prev_snap["month"] - 1]
+                if prev_income > 0:
+                    pct_change = (last_mo_income - prev_income) / prev_income * 100
                 pct_color = _GREEN if pct_change >= 0 else _RED
                 has_pct   = True
-        has_income_data = bool(prev_snap)
+        has_income_data = bool(latest)
 
         if not has_portfolio and not has_income_data:
             return
@@ -447,7 +449,7 @@ class DashboardView(ctk.CTkScrollableFrame):
                 pct_sign = "+" if pct_change >= 0 else ""
                 ctk.CTkLabel(
                     inner3,
-                    text=f"{pct_sign}{pct_change:.1f}%  vs {prev_month_name}",
+                    text=f"{pct_sign}{pct_change:.1f}%  vs {prev_month_label}",
                     text_color=pct_color,
                     font=ctk.CTkFont(family=_F, size=12), anchor="w",
                 ).pack(anchor="w")
@@ -644,6 +646,134 @@ class DashboardView(ctk.CTkScrollableFrame):
             font=ctk.CTkFont(family=_F, size=13, weight="bold"),
             text_color=_GREEN if est_change >= 0 else _RED,
         ).pack(side="right")
+
+    # ── Prediction accuracy ───────────────────────────────────────────────────
+
+    def _render_prediction_accuracy(self, all_snaps: list):
+        for w in self._prediction_container.winfo_children():
+            w.destroy()
+
+        def _hide():
+            if self._prediction_container.winfo_manager():
+                self._prediction_container.pack_forget()
+
+        if len(all_snaps) < 2:
+            _hide()
+            return
+
+        daily_buffer = float(get_setting("daily_buffer") or "20.0")
+        fx_total     = sum(e["amount"] for e in get_all_expenses())
+
+        all_rows = []
+        for i in range(1, len(all_snaps)):
+            current  = all_snaps[i]
+            prev     = all_snaps[i - 1]
+            last_day = calendar.monthrange(current["year"], current["month"])[1]
+            estimated = prev["total"] - (last_day * daily_buffer) - fx_total
+            actual    = current["total"]
+            delta     = actual - estimated
+            all_rows.append((current["year"], current["month"], estimated, actual, delta))
+
+        all_rows.reverse()  # most recent first
+
+        available_years = sorted({r[0] for r in all_rows}, reverse=True)
+        year_options    = ["All"] + [str(y) for y in available_years]
+        most_recent_yr  = str(available_years[0]) if available_years else "All"
+
+        if not hasattr(self, "_pred_year_filter") or self._pred_year_filter not in year_options:
+            self._pred_year_filter = most_recent_yr
+
+        if not self._prediction_container.winfo_manager():
+            self._prediction_container.pack(
+                fill="x", padx=24, pady=(0, 4),
+                before=self._annual_divider,
+            )
+
+        card  = ctk.CTkFrame(self._prediction_container, fg_color=_BG_CARD,
+                             corner_radius=14, border_width=1, border_color=_BORDER)
+        card.pack(fill="x", pady=(4, 8))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=20, pady=16)
+
+        ctk.CTkLabel(inner, text="PREDICTION ACCURACY HISTORY",
+                     font=ctk.CTkFont(family=_F, size=11),
+                     text_color=_TEXT_SEC).pack(anchor="w")
+
+        # Subtitle row: label left, year dropdown right
+        sub_row = ctk.CTkFrame(inner, fg_color="transparent")
+        sub_row.pack(fill="x", pady=(2, 10))
+        sub_row.columnconfigure(0, weight=1)
+        ctk.CTkLabel(sub_row,
+                     text="Estimated vs actual end-of-month net worth per month",
+                     font=ctk.CTkFont(family=_F, size=12),
+                     text_color=_TEXT_SEC).grid(row=0, column=0, sticky="w")
+
+        year_var = ctk.StringVar(value=self._pred_year_filter)
+
+        def _on_year_change(choice):
+            self._pred_year_filter = choice
+            self._render_prediction_accuracy(all_snaps)
+
+        ctk.CTkOptionMenu(
+            sub_row, variable=year_var, values=year_options,
+            command=_on_year_change,
+            width=100, corner_radius=8,
+            fg_color=_BG_ELEM, button_color=_ACCENT, button_hover_color="#0096b4",
+            text_color=_TEXT_PRI, dropdown_fg_color=_BG_ELEM,
+            dropdown_text_color=_TEXT_PRI,
+        ).grid(row=0, column=1, sticky="e")
+
+        W_MON = 160
+        W_EST = 160
+        W_ACT = 160
+        W_DIF = 160
+
+        # Header row
+        hdr = ctk.CTkFrame(inner, fg_color=_BG_ELEM, corner_radius=8)
+        hdr.pack(fill="x", pady=(0, 4))
+        hdr_inner = ctk.CTkFrame(hdr, fg_color="transparent")
+        hdr_inner.pack(anchor="w", padx=12, pady=6)
+        for text, width, anchor in [
+            ("Month",      W_MON, "w"),
+            ("Estimated",  W_EST, "e"),
+            ("Actual",     W_ACT, "e"),
+            ("Difference", W_DIF, "e"),
+        ]:
+            ctk.CTkLabel(hdr_inner, text=text, width=width, anchor=anchor,
+                         text_color=_TEXT_SEC,
+                         font=ctk.CTkFont(family=_F, size=12)).pack(side="left")
+
+        # Filter rows by selected year
+        selected = self._pred_year_filter
+        if selected == "All":
+            rows = all_rows
+        else:
+            rows = [r for r in all_rows if r[0] == int(selected)]
+
+        if not rows:
+            ctk.CTkLabel(inner, text=f"No data for {selected}.",
+                         text_color=_TEXT_SEC,
+                         font=ctk.CTkFont(family=_F, size=12)).pack(anchor="w", pady=8)
+            return
+
+        # Data rows — month name only (no year)
+        for idx, (_, month, estimated, actual, delta) in enumerate(rows):
+            row_bg    = _BG_CARD if idx % 2 == 0 else "#161b22"
+            row       = ctk.CTkFrame(inner, fg_color=row_bg, corner_radius=6)
+            row.pack(fill="x", pady=1)
+            row_inner = ctk.CTkFrame(row, fg_color="transparent")
+            row_inner.pack(anchor="w", padx=12, pady=5)
+
+            diff_color = _GREEN if delta >= 0 else _RED
+            for text, width, anchor, color in [
+                (MONTHS[month - 1],     W_MON, "w", _TEXT_PRI),
+                (fmt_eur(estimated),    W_EST, "e", _TEXT_SEC),
+                (fmt_eur(actual),       W_ACT, "e", _TEXT_SEC),
+                (fmt_eur_signed(delta), W_DIF, "e", diff_color),
+            ]:
+                ctk.CTkLabel(row_inner, text=text, width=width, anchor=anchor,
+                             text_color=color,
+                             font=ctk.CTkFont(family=_F, size=12)).pack(side="left")
 
     # ── Snapshot History ──────────────────────────────────────────────────────
 

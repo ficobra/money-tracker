@@ -72,6 +72,7 @@ Never read 3+ files directly in main conversation.
 - **Extra income**: `+ Add bonus` button per income row opens sub-rows with description + amount fields. Multiple extras per source per month allowed. Saved to `extra_income` table via `clear_extra_income()` + `add_extra_income()` on each save. Dashboard income card shows "+€X in extras" sub-line when `extra_total > 0`.
 - **Overwrite warning**: Before `save_snapshot()`, if `get_snapshot(year, month) is not None`, a CTkToplevel confirmation dialog asks "Overwrite?" — Overwrite/Cancel buttons. `lock_scroll()` before `grab_set()`, `unlock_scroll()` after `wait_window()`.
 - **Income amount validation**: 0.00 and empty fields are valid (treated as 0.00); only negative values are rejected.
+- **Portfolio value on save**: after `save_snapshot()`, the current portfolio EUR value is calculated from `get_portfolio_positions()` + `get_portfolio_cache()` and stored via `update_snapshot_portfolio(year, month, portfolio_eur)`. Wrapped in try/except so missing cache never blocks the save.
 
 ### Budget (tab)
 The "Budget" tab is split into two sections:
@@ -108,7 +109,7 @@ The "Budget" tab is split into two sections:
 - **Daily buffer** (default: 20 EUR/day) editable from the Settings tab; stored in `settings` table under key `daily_buffer`.
 
 ### Dashboard
-- **Metric cards**: NET WORTH, MONTHLY CHANGE, FIXED EXPENSES (3 static cards in `cards_frame`). Extra cards rendered by `_render_extra_cards()` into `_extra_cards_frame`: PORTFOLIO + ALLOCATION DONUT (conditional), LAST MONTH INCOME (conditional).
+- **Metric cards**: NET WORTH, MONTHLY CHANGE, FIXED EXPENSES (3 static cards in `cards_frame`). Extra cards rendered by `_render_extra_cards()` into `_extra_cards_frame`: PORTFOLIO + ALLOCATION DONUT (conditional), LAST MONTH INCOME (conditional). LAST MONTH INCOME shows income from `latest` (snapshots[0]); pct-change compares to `prev_snap` (snapshots[1]); label reads "vs {MONTHS[prev_snap['month']-1]}". `has_income_data = bool(latest)`.
 - **NET WORTH card secondary line**: `_nw_portfolio_lbl` is a `CTkLabel` child of `_nw_inner` (4th return value of `_make_card()`), created in `_build()` unpacked. `pack(before=_nw_spark)` / `pack_forget()` in `_render_extra_cards()` based on portfolio data.
 - **ALLOCATION donut card**: Follows Portfolio in slot sequence. `_render_donut_chart()` uses `Figure(figsize=(3.4, 2.0))` with `ax.pie(..., wedgeprops=dict(width=0.52))` + legend `bbox_to_anchor=(1.02, 0.5)`. Colors: `_DONUT_COLORS`. Empty state if `< 2 valued positions`.
 - **Reminder badge**: `_render_reminder_badge(inner)` called inside Portfolio card — shows subtle text from `get_portfolio_reminder()` (teal when > 30 days, yellow `#f0c040` when ≤ 30 days or overdue).
@@ -116,7 +117,8 @@ The "Budget" tab is split into two sections:
 - **Snapshot History**: compact year × month grid. ✓ = saved snapshot (clickable button → navigates to Monthly Snapshot for that period). · = no snapshot. `_render_snapshot_history()` calls `get_all_snapshots()`. `_go_to_snapshot(year, month)` sets `SnapshotEntryView._pending_period` and calls `navigate("snapshot")`.
 - **Annual Overview**: best/worst/avg monthly change and total saved for current year
 - **Account Breakdown**: latest vs prev snapshot balances, change highlighted green/red
-- **Dashboard layout order**: metric cards (`cards_frame`) → extra cards (`_extra_cards_frame`) → estimation → Annual Overview → Account Breakdown → Snapshot History → CSV Export
+- **Dashboard layout order**: metric cards (`cards_frame`) → extra cards (`_extra_cards_frame`) → estimation → prediction accuracy → Annual Overview → Account Breakdown → Snapshot History → CSV Export
+- **Prediction Accuracy History table** (`_render_prediction_accuracy(all_snaps)`): shown when ≥2 snapshots exist. Receives `all_snaps` (oldest→newest). Builds `all_rows` newest-first; month label is month name only (no year). **Year filter**: `CTkOptionMenu` in subtitle row (right-aligned via grid col 1); options `["All"] + years desc`; default = most recent year; stored in `self._pred_year_filter`; on change calls `_render_prediction_accuracy(all_snaps)` again. When specific year selected: rows filtered to that year; "No data for {year}." shown if empty. Header row (fg `_BG_ELEM`) + alternating data rows (`_BG_CARD` / `#161b22`). Columns: Month 160w, Estimated 160e `_TEXT_SEC`, Actual 160e `_TEXT_SEC`, Difference 160e green/red. `_prediction_container` packed `before=self._annual_divider`.
 - **Export to CSV**: button at bottom; exports Year/Month/Account/Balance rows
 
 ### Portfolio (tab)
@@ -135,7 +137,7 @@ The "Budget" tab is split into two sections:
 - yfinance installed in venv; in `requirements.txt`
 
 ### Visualizations (Analytics tab)
-- **Net Worth Over Time** (smooth line chart) — ≥1 snapshot; 300-point numpy linear interp (`np.interp`) for smooth curve; gradient fill via `fill_between(..., alpha=0.15)`; stats header (current value + change/%)
+- **Net Worth Over Time** (smooth line chart) — ≥1 snapshot; 300-point numpy linear interp (`np.interp`) for smooth curve; gradient fill via `fill_between(..., alpha=0.15)`; stats header (current value + change/%). **Two lines**: teal `#00b4d8` "Excl. portfolio" always plots all snapshots; green `#3fb950` "Incl. portfolio" only plots snapshots where `portfolio_eur > 0` (uses `x_port`/`y_total_port` subsets to avoid false cliffs). If `len(x_port) >= 2` → smooth interp over `[x_port[0], x_port[-1]]`; else single marker. Legend shown when portfolio line is visible. Header stats use `y_total_port[-1]`/`[-2]` when portfolio data exists.
 - **Monthly Net Worth Change** (bar chart) — ≥2 snapshots; green/red bars; `ax.margins(y=0.30)`; stats header (latest change + comparison to previous)
 - **Cash Flow** (income bar + spending bar + net savings line) — spending bar shown for ANY month where a previous snapshot exists (`key in prev_nw`). First snapshot never gets a spending bar (no prev). `spent_per_month: list[float | None]` (None = first snapshot, no previous); formula: `spent(N) = prev_nw(N-1) + income(N) - nw(N)`; stats from confirmed months only; filter: `_cashflow_filter` (default "All")
 - **Account Tracker** (line chart, dynamic) — ≥1 snapshot; accounts shown as solid lines with `_tracker_vars: dict[str, BooleanVar]`; income sources shown as dashed lines with `_income_tracker_vars: dict[int, BooleanVar]` and `_income_names: dict[int, str]`; income data loaded via `get_snapshot_income(year, month)` for each snapshot into `_income_snap_data`
@@ -184,7 +186,7 @@ The "Budget" tab is split into two sections:
 - **Spacer** (fill="both", expand=True)
 - **Exit** (red, anchored to very bottom)
 - `_nav_buttons` dict covers all nav entries (dashboard, snapshot, expenses, portfolio, charts, notes, help, settings)
-- No emoji icons in nav labels — clean text only
+- **Monochrome Unicode icons** in nav labels (no emoji): "⊞  Dashboard", "◷  Monthly Snapshot", "¤  Budget", "◈  Portfolio", "∿  Analytics", "✎  Notes", "?  Help", "⚙  Settings". Exit stays as-is. All buttons keep `anchor="w"`.
 
 ### Currency Formatting
 - All display values use European format: `€1.234,56`
@@ -313,7 +315,10 @@ money-tracker/
 - `upsert_portfolio_cache(ticker, price, currency, day_change, day_change_pct, name, price_eur=None)`
 - `get_portfolio_reminder()` → dict (id, reminder_date, is_enabled) or None
 - `upsert_portfolio_reminder(reminder_date: str, is_enabled: int)` — create or update single reminder row
+- `update_snapshot_portfolio(year, month, portfolio_eur)` → UPDATE snapshots SET portfolio_eur = ? for that month
+- `get_all_snapshots()` includes `portfolio_eur` (float, defaults to 0.0) in every returned dict
 - DB migrations in `init_db()` handle all schema additions for existing databases
+- `snapshots` table has `portfolio_eur REAL DEFAULT 0.0` column (added via safe ALTER TABLE migration)
 
 ## Important Rules for Claude
 - Always use CTk widgets (customtkinter), never raw Tkinter
@@ -326,7 +331,7 @@ money-tracker/
 - Global scroll: `_bind_global_scroll()` in `App` (main.py) uses `bind_all("<MouseWheel>")` + `<Button-4/5>` to walk widget hierarchy; guards with `is_scroll_locked()` at top; pre-checks boundary (`yview()[0] <= 0` → block up-scroll) before calling `yview_scroll(-3/3, "units")`; also clamps yview to ≥0 after each scroll
 - Scroll lock: use `open_dialog()` (which calls `lock_scroll()` internally); call `unlock_scroll()` after `wait_window()`. `lock_scroll()`, `unlock_scroll()`, `is_scroll_locked()` are in `utils.py`.
 - Charts scroll: `_patch_canvas_scroll()` in `ChartsView` replaces `_parent_canvas` MouseWheel bindings with a boundary-aware version that returns `"break"` to prevent the global handler from double-firing
-- Dashboard spacing: `_estimation_container` is NOT pre-packed in `_build()`; `_render_estimation()` packs it dynamically (before `_annual_divider`) when content exists, and calls `pack_forget()` when empty
+- Dashboard spacing: `_estimation_container` and `_prediction_container` are NOT pre-packed in `_build()`; each render method packs/unpacks them dynamically. `_prediction_container` packs `before=self._annual_divider`; `_estimation_container` packs `before=_annual_divider` (comes first in layout order).
 - Sidebar: Exit button anchored to very bottom via `fill="both", expand=True` spacer; `text_color="#FF4444"`; sidebar has 3 groups (Top/Middle/Bottom) separated by 2 dividers
 - `get_all_accounts()` in db.py returns all accounts ever saved, ordered by insertion (`ORDER BY id`)
 - `_build_snapshot_dict`: `total` = sum of ALL account balances (no investment distinction)
