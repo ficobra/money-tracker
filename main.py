@@ -108,7 +108,7 @@ class App(QMainWindow):
         name_lbl = QLabel("Money Tracker")
         name_lbl.setFont(QFont(FONT, 13, QFont.Weight.Bold))
         name_lbl.setStyleSheet("color: #e7eef7; background: transparent; border: none;")
-        ver_lbl = QLabel("V 2.4")
+        ver_lbl = QLabel("v1.6")
         ver_lbl.setFont(QFont(FONT, 10))
         ver_lbl.setStyleSheet("color: #6b7d94; background: transparent; border: none;")
         app_name_v.addWidget(name_lbl)
