@@ -195,6 +195,12 @@ def init_db():
         except Exception:
             pass  # column already exists
 
+        # Migrate fixed_expenses for category
+        try:
+            conn.execute("ALTER TABLE fixed_expenses ADD COLUMN category TEXT NOT NULL DEFAULT 'Other'")
+        except Exception:
+            pass  # column already exists
+
         # Seed default expenses on first run
         count = conn.execute("SELECT COUNT(*) FROM fixed_expenses").fetchone()[0]
         if count == 0:
@@ -375,25 +381,34 @@ def set_setting(key: str, value: str):
 def get_all_expenses() -> list[sqlite3.Row]:
     with get_connection() as conn:
         return conn.execute(
-            "SELECT id, name, amount, day_of_month"
+            "SELECT id, name, amount, day_of_month, category"
             " FROM fixed_expenses ORDER BY day_of_month, name"
         ).fetchall()
 
 
-def add_expense(name: str, amount: float, day_of_month: int) -> int:
+def get_expenses_by_category() -> dict[str, float]:
+    """Returns {category: total_amount} for all fixed expenses, only categories with expenses."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT category, SUM(amount) FROM fixed_expenses GROUP BY category ORDER BY SUM(amount) DESC"
+        ).fetchall()
+    return {row[0]: row[1] for row in rows}
+
+
+def add_expense(name: str, amount: float, day_of_month: int, category: str = "Other") -> int:
     with get_connection() as conn:
         cur = conn.execute(
-            "INSERT INTO fixed_expenses (name, amount, day_of_month) VALUES (?, ?, ?)",
-            (name, amount, day_of_month),
+            "INSERT INTO fixed_expenses (name, amount, day_of_month, category) VALUES (?, ?, ?, ?)",
+            (name, amount, day_of_month, category),
         )
         return cur.lastrowid  # type: ignore[return-value]
 
 
-def update_expense(expense_id: int, name: str, amount: float, day_of_month: int):
+def update_expense(expense_id: int, name: str, amount: float, day_of_month: int, category: str = "Other"):
     with get_connection() as conn:
         conn.execute(
-            "UPDATE fixed_expenses SET name=?, amount=?, day_of_month=? WHERE id=?",
-            (name, amount, day_of_month, expense_id),
+            "UPDATE fixed_expenses SET name=?, amount=?, day_of_month=?, category=? WHERE id=?",
+            (name, amount, day_of_month, category, expense_id),
         )
 
 

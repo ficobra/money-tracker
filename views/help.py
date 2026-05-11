@@ -1,20 +1,22 @@
-import customtkinter as ctk
+"""Help tab — searchable user guide (PyQt6)."""
 
-# Premium dark theme palette
-_TEXT_PRI  = "#e6edf3"
-_TEXT_SEC  = "#8b949e"
-_BORDER    = "#2a3a52"
-_ACCENT    = "#00b4d8"
-_BG_CARD   = "#161f2e"
-_BG_ELEM   = "#21262d"
-_HIGHLIGHT   = "#0d2035"   # subtle teal background for matched items
-_MATCH_COLOR = "#f0c040"   # yellow text for matched content
-_F         = "Helvetica Neue"
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QScrollArea, QSizePolicy, QLineEdit,
+)
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFont
+
+from styles.theme import (
+    BG_CARD, BG_ELEM, BG_MAIN, ACCENT, TEXT_PRI, TEXT_SEC,
+    BORDER, GREEN, RED, FONT
+)
+
+_HIGHLIGHT   = "#0d2035"   # kept but unused
+_MATCH_COLOR = "#f0c040"   # yellow highlight for matched text
 
 
 # ── Help content data ─────────────────────────────────────────────────────────
-# Each section has a title and a list of items.
-# Item types: "body", "heading", "bullet"
 
 _HELP_DATA = [
     {
@@ -394,104 +396,213 @@ _HELP_DATA = [
 ]
 
 
-class HelpView(ctk.CTkScrollableFrame):
-    def __init__(self, parent):
-        super().__init__(parent, corner_radius=0, fg_color="transparent")
-        self._search_var = ctk.StringVar()
-        self._search_var.trace_add("write", self._on_search_change)
-        self._content_frame: ctk.CTkFrame | None = None
+# ── Inline text-segment helper ────────────────────────────────────────────────
+
+def _pack_text_segments(
+    parent_layout,
+    text: str,
+    term_lower: str,
+    font_size: int,
+    normal_color: str,
+    bold: bool = False,
+) -> None:
+    """Add inline QLabel segments with the search term highlighted in yellow."""
+    if not term_lower or term_lower not in text.lower():
+        lbl = QLabel(text)
+        lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        lbl.setFont(QFont(FONT, font_size, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+        lbl.setStyleSheet(f"color: {normal_color}; background: transparent; border: none;")
+        lbl.setWordWrap(True)
+        parent_layout.addWidget(lbl)
+        return
+
+    row_widget = QWidget()
+    row_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+    row_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+    row_widget.setStyleSheet("background: transparent; border: none;")
+    row_h = QHBoxLayout(row_widget)
+    row_h.setContentsMargins(0, 0, 0, 0)
+    row_h.setSpacing(0)
+
+    lower_text = text.lower()
+    idx = 0
+    while idx < len(text):
+        pos = lower_text.find(term_lower, idx)
+        if pos == -1:
+            segment = text[idx:]
+            if segment:
+                lbl = QLabel(segment)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+                lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                lbl.setFont(QFont(FONT, font_size, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+                lbl.setStyleSheet(f"color: {normal_color}; background: transparent; border: none;")
+                row_h.addWidget(lbl)
+            break
+        if pos > idx:
+            segment = text[idx:pos]
+            lbl = QLabel(segment)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            lbl.setFont(QFont(FONT, font_size, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+            lbl.setStyleSheet(f"color: {normal_color}; background: transparent; border: none;")
+            row_h.addWidget(lbl)
+        match_segment = text[pos:pos + len(term_lower)]
+        lbl = QLabel(match_segment)
+        lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        lbl.setFont(QFont(FONT, font_size, QFont.Weight.Bold))
+        lbl.setStyleSheet("color: #f0c040; background: transparent; border: none;")
+        row_h.addWidget(lbl)
+        idx = pos + len(term_lower)
+
+    row_h.addStretch()
+    parent_layout.addWidget(row_widget)
+
+
+# ── View ──────────────────────────────────────────────────────────────────────
+
+class HelpView(QScrollArea):
+    def __init__(self) -> None:
+        super().__init__()
+        self.setWidgetResizable(True)
+        self.setStyleSheet("background: #0d1117; border: none;")
+
+        self._search_term: str = ""
+
+        content = QWidget()
+        content.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        content.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        content.setStyleSheet("background: #0d1117;")
+        self._outer_layout = QVBoxLayout(content)
+        self._outer_layout.setContentsMargins(24, 24, 24, 24)
+        self._outer_layout.setSpacing(4)
+        self.setWidget(content)
+
         self._build()
 
     # ── Build ─────────────────────────────────────────────────────────────────
 
-    def _build(self):
-        # ── Header row: title (left) + search (right) ─────────────────────────
-        top_row = ctk.CTkFrame(self, fg_color="transparent")
-        top_row.pack(fill="x", padx=24, pady=(24, 2))
-        top_row.columnconfigure(0, weight=1)
+    def _build(self) -> None:
+        # Header row: title (left) + search (right)
+        top_row_w = QWidget()
+        top_row_w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        top_row_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        top_row_w.setStyleSheet("background: transparent; border: none;")
+        top_row = QHBoxLayout(top_row_w)
+        top_row.setContentsMargins(0, 0, 0, 2)
+        top_row.setSpacing(12)
 
-        ctk.CTkLabel(
-            top_row, text="Help & User Guide",
-            font=ctk.CTkFont(family=_F, size=22, weight="bold"),
-            text_color=_TEXT_PRI,
-        ).grid(row=0, column=0, sticky="w")
+        title_lbl = QLabel("Help & User Guide")
+        title_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        title_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        title_lbl.setFont(QFont(FONT, 22, QFont.Weight.Bold))
+        title_lbl.setStyleSheet(f"color: {TEXT_PRI}; background: transparent; border: none;")
+        top_row.addWidget(title_lbl)
+        top_row.addStretch()
 
-        # Search field container (right-aligned, max 300px)
-        search_container = ctk.CTkFrame(
-            top_row, fg_color=_BG_ELEM, corner_radius=8,
-            border_width=1, border_color=_BORDER,
+        # Search container
+        search_container = QFrame()
+        search_container.setFrameShape(QFrame.Shape.NoFrame)
+        search_container.setFrameShadow(QFrame.Shadow.Plain)
+        search_container.setLineWidth(0)
+        search_container.setStyleSheet(
+            f"QFrame {{ background: {BG_ELEM}; border: 1px solid {BORDER}; border-radius: 8px; }}"
+            f"QFrame QWidget {{ background: transparent; border: none; }}"
+            f"QFrame QLabel {{ border: none; background: transparent; }}"
         )
-        search_container.grid(row=0, column=1, sticky="e")
+        sc_layout = QHBoxLayout(search_container)
+        sc_layout.setContentsMargins(8, 4, 4, 4)
+        sc_layout.setSpacing(2)
 
-        ctk.CTkLabel(
-            search_container, text="🔍",
-            text_color=_TEXT_SEC, font=ctk.CTkFont(family=_F, size=13),
-        ).pack(side="left", padx=(8, 2), pady=4)
+        icon_lbl = QLabel("🔍")
+        icon_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        icon_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        icon_lbl.setFont(QFont(FONT, 13))
+        icon_lbl.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
+        sc_layout.addWidget(icon_lbl)
 
-        self._search_entry = ctk.CTkEntry(
-            search_container, textvariable=self._search_var,
-            placeholder_text="Search...",
-            placeholder_text_color="#6b7280",
-            fg_color="transparent", border_width=0,
-            text_color=_TEXT_PRI,
-            font=ctk.CTkFont(family=_F, size=13),
-            width=220,
+        self._search_entry = QLineEdit()
+        self._search_entry.setPlaceholderText("Search...")
+        self._search_entry.setFont(QFont(FONT, 13))
+        self._search_entry.setFixedWidth(220)
+        self._search_entry.setFixedHeight(28)
+        self._search_entry.setStyleSheet(
+            "QLineEdit { background: transparent; border: none; color: #e6edf3; padding: 0 4px; }"
         )
-        self._search_entry.pack(side="left", pady=4)
+        self._search_entry.textChanged.connect(self._on_search_change)
+        sc_layout.addWidget(self._search_entry)
 
-        self._clear_btn = ctk.CTkButton(
-            search_container, text="×", width=28, height=28,
-            fg_color="transparent", hover_color="#3d4d63",
-            text_color=_TEXT_SEC, corner_radius=6,
-            font=ctk.CTkFont(family=_F, size=14),
-            command=self._clear_search,
+        self._clear_btn = QPushButton("×")
+        self._clear_btn.setFixedSize(24, 24)
+        self._clear_btn.setFont(QFont(FONT, 14))
+        self._clear_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {TEXT_SEC}; border: none; border-radius: 4px; }}"
+            f"QPushButton:hover {{ background: #3d4d63; }}"
         )
-        self._clear_btn.pack(side="left", padx=(0, 4))
-        self._clear_btn.pack_forget()  # hidden when search is empty
+        self._clear_btn.clicked.connect(self._clear_search)
+        self._clear_btn.setVisible(False)
+        sc_layout.addWidget(self._clear_btn)
 
-        ctk.CTkLabel(
-            self, text="Everything you need to know about using Money Tracker.",
-            text_color=_TEXT_SEC,
-        ).pack(anchor="w", padx=24, pady=(4, 12))
+        top_row.addWidget(search_container)
+        self._outer_layout.addWidget(top_row_w)
 
-        self._no_results_lbl = ctk.CTkLabel(
-            self, text="", text_color=_TEXT_SEC,
-            font=ctk.CTkFont(family=_F, size=13),
-        )
+        # Subtitle
+        sub_lbl = QLabel("Everything you need to know about using Money Tracker.")
+        sub_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        sub_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        sub_lbl.setFont(QFont(FONT, 13))
+        sub_lbl.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
+        sub_lbl.setContentsMargins(0, 0, 0, 8)
+        self._outer_layout.addWidget(sub_lbl)
 
-        # ── Content frame ─────────────────────────────────────────────────────
-        self._content_frame = ctk.CTkFrame(self, fg_color="transparent")
-        self._content_frame.pack(fill="x")
+        # No-results label (hidden by default)
+        self._no_results_lbl = QLabel("")
+        self._no_results_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self._no_results_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._no_results_lbl.setFont(QFont(FONT, 13))
+        self._no_results_lbl.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
+        self._no_results_lbl.setContentsMargins(0, 16, 0, 0)
+        self._no_results_lbl.setVisible(False)
+        self._outer_layout.addWidget(self._no_results_lbl)
+
+        # Content container
+        self._content_widget = QWidget()
+        self._content_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self._content_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._content_widget.setStyleSheet("background: transparent; border: none;")
+        self._content_layout = QVBoxLayout(self._content_widget)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(0)
+        self._outer_layout.addWidget(self._content_widget)
+
+        self._outer_layout.addStretch()
 
         self._render_content("")
 
-        ctk.CTkFrame(self, height=32, fg_color="transparent").pack()
-
     # ── Search handlers ───────────────────────────────────────────────────────
 
-    def _on_search_change(self, *_):
-        term = self._search_var.get()
-        if term.strip():
-            self._clear_btn.pack(side="left", padx=(0, 4))
-        else:
-            self._clear_btn.pack_forget()
-        self._render_content(term)
+    def _on_search_change(self, text: str) -> None:
+        self._search_term = text
+        self._clear_btn.setVisible(bool(text.strip()))
+        self._render_content(text)
 
-    def _clear_search(self):
-        self._search_var.set("")
+    def _clear_search(self) -> None:
+        self._search_entry.clear()
 
     # ── Content rendering ─────────────────────────────────────────────────────
 
-    def _render_content(self, term: str):
-        if self._content_frame is None:
-            return
-        for w in self._content_frame.winfo_children():
-            w.destroy()
-        if self._no_results_lbl.winfo_manager():
-            self._no_results_lbl.pack_forget()
+    def _render_content(self, term: str) -> None:
+        # Clear existing content
+        while self._content_layout.count():
+            item = self._content_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
 
         term_lower = term.strip().lower()
-        no_filter  = not term_lower
+        no_filter = not term_lower
         any_result = False
 
         for sec in _HELP_DATA:
@@ -503,23 +614,45 @@ class HelpView(ctk.CTkScrollableFrame):
 
             any_result = True
 
-            # Section divider + title
-            ctk.CTkFrame(
-                self._content_frame, height=1, fg_color=_BORDER,
-            ).pack(fill="x", padx=24, pady=(16, 0))
+            # Section divider
+            div = QFrame()
+            div.setFrameShape(QFrame.Shape.NoFrame)
+            div.setFrameShadow(QFrame.Shadow.Plain)
+            div.setLineWidth(0)
+            div.setFixedHeight(1)
+            div.setStyleSheet("background: #2a3a52; border: none;")
+            div.setContentsMargins(0, 8, 0, 0)
+            div_wrapper = QWidget()
+            div_wrapper.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            div_wrapper.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            div_wrapper.setStyleSheet("background: transparent; border: none;")
+            dw_layout = QVBoxLayout(div_wrapper)
+            dw_layout.setContentsMargins(0, 12, 0, 0)
+            dw_layout.addWidget(div)
+            self._content_layout.addWidget(div_wrapper)
 
+            # Section title
             if not no_filter and sec_match:
-                title_row = ctk.CTkFrame(self._content_frame, fg_color="transparent")
-                title_row.pack(anchor="w", padx=24, pady=(14, 6))
-                self._pack_text_segments(
-                    title_row, sec["section"], term_lower, 17, _TEXT_PRI, bold=True)
+                title_row_w = QWidget()
+                title_row_w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+                title_row_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                title_row_w.setStyleSheet("background: transparent; border: none;")
+                title_row = QHBoxLayout(title_row_w)
+                title_row.setContentsMargins(0, 10, 0, 4)
+                title_row.setSpacing(0)
+                _pack_text_segments(title_row, sec["section"], term_lower, 17, TEXT_PRI, bold=True)
+                title_row.addStretch()
+                self._content_layout.addWidget(title_row_w)
             else:
-                ctk.CTkLabel(
-                    self._content_frame, text=sec["section"],
-                    font=ctk.CTkFont(family=_F, size=17, weight="bold"),
-                    text_color=_TEXT_PRI,
-                ).pack(anchor="w", padx=24, pady=(14, 6))
+                sec_lbl = QLabel(sec["section"])
+                sec_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+                sec_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+                sec_lbl.setFont(QFont(FONT, 17, QFont.Weight.Bold))
+                sec_lbl.setStyleSheet(f"color: {TEXT_PRI}; background: transparent; border: none;")
+                sec_lbl.setContentsMargins(0, 10, 0, 4)
+                self._content_layout.addWidget(sec_lbl)
 
+            # Items
             for item in sec["items"]:
                 item_match = not no_filter and term_lower in item["text"].lower()
                 if item["type"] == "heading":
@@ -529,74 +662,83 @@ class HelpView(ctk.CTkScrollableFrame):
                 elif item["type"] == "bullet":
                     self._w_bullet(item["text"], item_match, term_lower)
 
+        self._no_results_lbl.setVisible(not no_filter and not any_result)
         if not no_filter and not any_result:
-            self._no_results_lbl.configure(text=f"No results for '{term}'")
-            self._no_results_lbl.pack(anchor="w", padx=24, pady=(20, 0))
+            self._no_results_lbl.setText(f"No results for '{term}'")
 
     # ── Item widget renderers ─────────────────────────────────────────────────
 
-    def _pack_text_segments(
-        self, parent, text: str, term_lower: str,
-        font_size: int, normal_color: str, bold: bool = False,
-    ):
-        """Pack inline CTkLabel segments with the search term highlighted in yellow."""
-        text_lower  = text.lower()
-        normal_font = ctk.CTkFont(family=_F, size=font_size, weight="bold" if bold else "normal")
-        match_font  = ctk.CTkFont(family=_F, size=font_size, weight="bold")
-        last = 0
-        while True:
-            idx = text_lower.find(term_lower, last)
-            if idx == -1:
-                remaining = text[last:]
-                if remaining:
-                    ctk.CTkLabel(parent, text=remaining, text_color=normal_color,
-                                 font=normal_font, anchor="w").pack(side="left", anchor="w")
-                break
-            if idx > last:
-                ctk.CTkLabel(parent, text=text[last:idx], text_color=normal_color,
-                             font=normal_font, anchor="w").pack(side="left", anchor="w")
-            ctk.CTkLabel(
-                parent, text=text[idx:idx + len(term_lower)], text_color=_MATCH_COLOR,
-                font=match_font, anchor="w",
-            ).pack(side="left", anchor="w")
-            last = idx + len(term_lower)
-
-    def _w_heading(self, text: str, highlighted: bool, term_lower: str = ""):
+    def _w_heading(self, text: str, highlighted: bool, term_lower: str = "") -> None:
         if highlighted:
-            row = ctk.CTkFrame(self._content_frame, fg_color="transparent")
-            row.pack(anchor="w", fill="x", padx=24, pady=(10, 2))
-            self._pack_text_segments(row, text, term_lower, 14, _TEXT_PRI, bold=True)
+            row_w = QWidget()
+            row_w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            row_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            row_w.setStyleSheet("background: transparent; border: none;")
+            row = QHBoxLayout(row_w)
+            row.setContentsMargins(0, 8, 0, 2)
+            row.setSpacing(0)
+            _pack_text_segments(row, text, term_lower, 14, TEXT_PRI, bold=True)
+            row.addStretch()
+            self._content_layout.addWidget(row_w)
         else:
-            ctk.CTkLabel(
-                self._content_frame, text=text,
-                font=ctk.CTkFont(family=_F, size=14, weight="bold"),
-                text_color=_TEXT_PRI,
-            ).pack(anchor="w", padx=24, pady=(10, 2))
+            lbl = QLabel(text)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            lbl.setFont(QFont(FONT, 14, QFont.Weight.Bold))
+            lbl.setStyleSheet(f"color: {TEXT_PRI}; background: transparent; border: none;")
+            lbl.setContentsMargins(0, 8, 0, 2)
+            self._content_layout.addWidget(lbl)
 
-    def _w_body(self, text: str, highlighted: bool, term_lower: str = ""):
+    def _w_body(self, text: str, highlighted: bool, term_lower: str = "") -> None:
         if highlighted:
-            row = ctk.CTkFrame(self._content_frame, fg_color="transparent")
-            row.pack(anchor="w", fill="x", padx=24, pady=(0, 4))
-            self._pack_text_segments(row, text, term_lower, 13, _TEXT_SEC)
+            row_w = QWidget()
+            row_w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            row_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            row_w.setStyleSheet("background: transparent; border: none;")
+            row = QHBoxLayout(row_w)
+            row.setContentsMargins(0, 0, 0, 4)
+            row.setSpacing(0)
+            _pack_text_segments(row, text, term_lower, 13, TEXT_SEC)
+            row.addStretch()
+            self._content_layout.addWidget(row_w)
         else:
-            ctk.CTkLabel(
-                self._content_frame, text=text, text_color=_TEXT_SEC,
-                wraplength=800, justify="left",
-                font=ctk.CTkFont(family=_F, size=13),
-            ).pack(anchor="w", padx=24, pady=(0, 4))
+            lbl = QLabel(text)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            lbl.setFont(QFont(FONT, 13))
+            lbl.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
+            lbl.setWordWrap(True)
+            lbl.setContentsMargins(0, 0, 0, 4)
+            self._content_layout.addWidget(lbl)
 
-    def _w_bullet(self, text: str, highlighted: bool, term_lower: str = ""):
-        row = ctk.CTkFrame(self._content_frame, fg_color="transparent", corner_radius=4)
-        row.pack(anchor="w", padx=24, pady=(1, 1), fill="x")
-        ctk.CTkLabel(
-            row, text="•", text_color=_TEXT_SEC,
-            font=ctk.CTkFont(family=_F, size=13), width=16,
-        ).pack(side="left", anchor="n", padx=(0, 6))
+    def _w_bullet(self, text: str, highlighted: bool, term_lower: str = "") -> None:
+        row_w = QWidget()
+        row_w.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        row_w.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        row_w.setStyleSheet("background: transparent; border: none;")
+        row = QHBoxLayout(row_w)
+        row.setContentsMargins(0, 1, 0, 1)
+        row.setSpacing(6)
+
+        bullet_lbl = QLabel("•")
+        bullet_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        bullet_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        bullet_lbl.setFont(QFont(FONT, 13))
+        bullet_lbl.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
+        bullet_lbl.setFixedWidth(16)
+        bullet_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        row.addWidget(bullet_lbl)
+
         if highlighted:
-            self._pack_text_segments(row, text, term_lower, 13, _TEXT_SEC)
+            _pack_text_segments(row, text, term_lower, 13, TEXT_SEC)
         else:
-            ctk.CTkLabel(
-                row, text=text, text_color=_TEXT_SEC,
-                wraplength=760, justify="left",
-                font=ctk.CTkFont(family=_F, size=13),
-            ).pack(side="left", anchor="w")
+            txt_lbl = QLabel(text)
+            txt_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+            txt_lbl.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+            txt_lbl.setFont(QFont(FONT, 13))
+            txt_lbl.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
+            txt_lbl.setWordWrap(True)
+            row.addWidget(txt_lbl)
+
+        row.addStretch()
+        self._content_layout.addWidget(row_w)

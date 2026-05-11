@@ -1,7 +1,8 @@
-customtkinter
+PyQt6
+PyQt6-Qt6
+PyQt6-sip
 matplotlib
 numpy
 pillow
-darkdetect
 yfinance
 resend

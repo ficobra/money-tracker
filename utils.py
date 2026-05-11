@@ -9,20 +9,11 @@ def effective_charge_day(year: int, month: int, day_of_month: int, last_day: int
     """
     actual = min(day_of_month, last_day)
     weekday = _cal.weekday(year, month, actual)
-    if weekday == 5:    # Saturday → Monday
+    if weekday == 5:    # Saturday -> Monday
         actual = min(actual + 2, last_day)
-    elif weekday == 6:  # Sunday → Monday
+    elif weekday == 6:  # Sunday -> Monday
         actual = min(actual + 1, last_day)
     return actual
-
-
-def center_on_parent(dialog, parent_widget, width: int, height: int):
-    """Center a CTkToplevel dialog on the main application window."""
-    parent_widget.update_idletasks()
-    root = parent_widget.winfo_toplevel()
-    x = root.winfo_x() + (root.winfo_width()  - width)  // 2
-    y = root.winfo_y() + (root.winfo_height() - height) // 2
-    dialog.geometry(f"{width}x{height}+{x}+{y}")
 
 
 def fmt_eur(value: float) -> str:
@@ -39,51 +30,57 @@ def fmt_eur_signed(value: float) -> str:
     return f"+€{eu}" if value >= 0 else f"-€{eu}"
 
 
-# ── Scroll lock (blocks global scroll handler while dialogs are open) ──────────
+def bind_numeric_entry(widget) -> None:
+    """Install a QDoubleValidator on a QLineEdit. Allows digits + one decimal, no negatives.
+    Also handles comma-to-dot conversion on textChanged.
+    """
+    from PyQt6.QtGui import QDoubleValidator
+    validator = QDoubleValidator(0.0, 999999999.0, 2, widget)
+    validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+    widget.setValidator(validator)
 
-_scroll_locked: bool = False
+    def _fix_comma(text: str) -> None:
+        if "," in text:
+            widget.blockSignals(True)
+            cursor = widget.cursorPosition()
+            widget.setText(text.replace(",", "."))
+            widget.setCursorPosition(cursor)
+            widget.blockSignals(False)
 
-
-def lock_scroll() -> None:
-    global _scroll_locked
-    _scroll_locked = True
-
-
-def unlock_scroll() -> None:
-    global _scroll_locked
-    _scroll_locked = False
-
-
-def is_scroll_locked() -> bool:
-    return _scroll_locked
-
-
-def bind_numeric_entry(entry) -> None:
-    """Bind a CTkEntry to auto-convert comma to dot on KeyRelease and FocusOut."""
-    def _fix(_event=None):
-        val = entry.get()
-        if "," in val:
-            entry.delete(0, "end")
-            entry.insert(0, val.replace(",", "."))
-    entry.bind("<KeyRelease>", _fix, add=True)
-    entry.bind("<FocusOut>", _fix, add=True)
+    widget.textChanged.connect(_fix_comma)
 
 
 def open_dialog(parent, width: int, height: int):
-    """Create a centered, scroll-locked modal CTkToplevel.
+    """Create a centered modal QDialog."""
+    from PyQt6.QtWidgets import QDialog
+    from PyQt6.QtCore import Qt
+    dialog = QDialog(parent.window() if parent else None)
+    dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+    dialog.setFixedSize(width, height)
+    dialog.setStyleSheet("QDialog { background-color: #161f2e; border-radius: 12px; }")
+    center_on_parent(dialog, parent)
+    return dialog
 
-    Usage:
-        dlg = open_dialog(self, 460, 160)
-        dlg.title("My Dialog")
-        # ... add widgets ...
-        dlg.wait_window()
-        unlock_scroll()
-    """
-    import customtkinter as ctk
-    dlg = ctk.CTkToplevel(parent)
-    dlg.resizable(False, False)
-    center_on_parent(dlg, parent, width, height)
-    lock_scroll()
-    dlg.grab_set()
-    dlg.focus_set()
-    return dlg
+
+def center_on_parent(dialog, parent) -> None:
+    """Center dialog on parent widget."""
+    if parent:
+        root = parent.window()
+        geom = root.geometry()
+        x = geom.x() + (geom.width() - dialog.width()) // 2
+        y = geom.y() + (geom.height() - dialog.height()) // 2
+        dialog.move(x, y)
+
+
+# ── Scroll lock (no-ops in PyQt6 — Qt handles modal blocking natively) ─────────
+
+def lock_scroll() -> None:
+    pass
+
+
+def unlock_scroll() -> None:
+    pass
+
+
+def is_scroll_locked() -> bool:
+    return False
