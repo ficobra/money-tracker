@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QFrame, QScrollArea, QSizePolicy, QLineEdit, QComboBox,
     QDialog,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QFont
 
 from database.db import (
@@ -151,8 +151,9 @@ class SnapshotEntryView(QScrollArea):
     # Class variable: set by Dashboard when navigating to a specific period
     _pending_period: tuple[int, int] | None = None
 
-    def __init__(self):
+    def __init__(self, navigate_callback=None):
         super().__init__()
+        self._navigate = navigate_callback
         self.setWidgetResizable(True)
         self.setStyleSheet("background: #0d1117; border: none;")
 
@@ -486,6 +487,42 @@ class SnapshotEntryView(QScrollArea):
         self._status_label.setWordWrap(True)
         save_h.addWidget(self._status_label, 1)
         cl.addWidget(save_row)
+
+        # Portfolio reminder banner (hidden by default)
+        self._portfolio_reminder_widget = QWidget()
+        self._portfolio_reminder_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        self._portfolio_reminder_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self._portfolio_reminder_widget.setStyleSheet("background: transparent;")
+        self._portfolio_reminder_widget.setVisible(False)
+        pr_h = QHBoxLayout(self._portfolio_reminder_widget)
+        pr_h.setContentsMargins(0, 4, 0, 0)
+        pr_h.setSpacing(12)
+        pr_banner = QFrame()
+        pr_banner.setStyleSheet(
+            "QFrame { background: #0d1f35; border: 1px solid #1e3a55; border-radius: 8px; }"
+        )
+        pr_inner = QHBoxLayout(pr_banner)
+        pr_inner.setContentsMargins(16, 10, 16, 10)
+        pr_lbl = QLabel("Snapshot saved. Don't forget to update your portfolio value for this month.")
+        pr_lbl.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        pr_lbl.setFont(QFont(FONT, 12))
+        pr_lbl.setStyleSheet("color: #9fb0c5; background: transparent; border: none;")
+        pr_inner.addWidget(pr_lbl, stretch=1)
+        pr_btn = QPushButton("Go to Portfolio →")
+        pr_btn.setFont(QFont(FONT, 12))
+        pr_btn.setFixedWidth(150)
+        pr_btn.setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0d1117; border: none;"
+            " border-radius: 8px; padding: 6px 12px; font-weight: 600; }"
+            "QPushButton:hover { background: #00d4ff; }"
+        )
+        pr_btn.clicked.connect(lambda: (
+            self._portfolio_reminder_widget.setVisible(False),
+            getattr(self, '_navigate', None) and self._navigate("portfolio"),
+        ))
+        pr_inner.addWidget(pr_btn)
+        pr_h.addWidget(pr_banner)
+        cl.addWidget(self._portfolio_reminder_widget)
 
         # ── Delete widget ─────────────────────────────────────────────────────
         self._del_widget = QWidget()
@@ -1086,6 +1123,7 @@ class SnapshotEntryView(QScrollArea):
             )
 
         self._del_widget.setVisible(True)
+        self._show_portfolio_reminder()
         self._update_total()
         self._maybe_show_deduction_dialog(year, month, balances)
 
@@ -1403,3 +1441,9 @@ class SnapshotEntryView(QScrollArea):
     def _set_status(self, text: str, color: str = TEXT_SEC) -> None:
         self._status_label.setText(text)
         self._status_label.setStyleSheet(f"color: {color}; background: transparent;")
+
+    def _show_portfolio_reminder(self) -> None:
+        if not hasattr(self, '_portfolio_reminder_widget'):
+            return
+        self._portfolio_reminder_widget.setVisible(True)
+        QTimer.singleShot(30000, lambda: self._portfolio_reminder_widget.setVisible(False))

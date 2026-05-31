@@ -30,13 +30,13 @@ def fmt_eur_signed(value: float) -> str:
     return f"+€{eu}" if value >= 0 else f"-€{eu}"
 
 
-def bind_numeric_entry(widget) -> None:
+def bind_numeric_entry(widget, decimals: int = 2) -> None:
     """Install a QDoubleValidator on a QLineEdit. Allows digits + one decimal, no negatives.
     Also handles comma-to-dot conversion on textChanged.
     """
     from PyQt6.QtGui import QDoubleValidator
     from PyQt6.QtCore import QLocale
-    validator = QDoubleValidator(0.0, 999999999.0, 2, widget)
+    validator = QDoubleValidator(0.0, 999999999.0, decimals, widget)
     validator.setNotation(QDoubleValidator.Notation.StandardNotation)
     validator.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
     widget.setValidator(validator)

@@ -47,7 +47,7 @@ class App(QMainWindow):
         self._views: dict[str, QWidget] = {}
         self._view_classes: dict[str, Callable[[], QWidget]] = {
             "dashboard": lambda: DashboardView(self.show_view),
-            "snapshot":  SnapshotEntryView,
+            "snapshot":  lambda: SnapshotEntryView(navigate_callback=self.show_view),
             "expenses":  ExpensesView,
             "portfolio": PortfolioView,
             "charts":    ChartsView,

@@ -25,6 +25,8 @@ from database.db import (
     get_portfolio_positions, add_position, update_position, delete_position,
     get_portfolio_cache, upsert_portfolio_cache,
     get_portfolio_reminder, upsert_portfolio_reminder,
+    get_latest_snapshots,
+    update_snapshot_portfolio,
 )
 from styles.theme import (
     ACCENT, TEXT_PRI, TEXT_SEC, TEXT_DIM,
@@ -644,6 +646,13 @@ class PortfolioView(QScrollArea):
         pnl_pct = (pnl / total_cost * 100) if total_cost else 0.0
         pnl_col = GREEN if pnl >= 0 else RED
         pnl_sign = "+" if pnl >= 0 else ""
+
+        # Save portfolio_eur to latest snapshot after fresh fetch
+        if total_eur > 0 and not self._using_cache:
+            latest = get_latest_snapshots(1)
+            if latest:
+                s = latest[0]
+                update_snapshot_portfolio(s["year"], s["month"], total_eur)
 
         # Card 0: Portfolio Value
         self._port_value_lbl.setText(fmt_eur(total_eur) if n_holdings else "—")
@@ -1382,7 +1391,7 @@ class PortfolioView(QScrollArea):
             dlg_layout.addWidget(hint)
 
         shares_entry = add_field("Shares", "e.g. 10")
-        bind_numeric_entry(shares_entry)
+        bind_numeric_entry(shares_entry, decimals=8)
         if is_edit:
             shares_entry.setText(str(pos["shares"]))
 
