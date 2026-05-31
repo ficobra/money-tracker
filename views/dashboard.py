@@ -463,8 +463,10 @@ class DashboardView(QScrollArea):
                 labels=month_labels,
                 figsize=(1.7, 0.9),
             )
+            def _snap_total(s: dict) -> float:
+                return s["total"] + (s.get("portfolio_eur") or 0.0)
             changes = [
-                all_snaps[i + 1]["total"] - all_snaps[i]["total"]
+                _snap_total(all_snaps[i + 1]) - _snap_total(all_snaps[i])
                 for i in range(len(all_snaps) - 1)
             ]
             self._add_sparkline(self._change_spark_container, changes[-6:], "bar", bg="#111d2e")
@@ -483,7 +485,9 @@ class DashboardView(QScrollArea):
             self._render_one_snapshot()
 
         if len(all_snaps) >= 2:
-            all_changes = [all_snaps[i+1]["total"] - all_snaps[i]["total"] for i in range(len(all_snaps)-1)]
+            def _total_incl(s: dict) -> float:
+                return s["total"] + (s.get("portfolio_eur") or 0.0)
+            all_changes = [_total_incl(all_snaps[i+1]) - _total_incl(all_snaps[i]) for i in range(len(all_snaps)-1)]
             avg_mo = sum(all_changes) / len(all_changes)
             avg_sign = "+" if avg_mo >= 0 else ""
             self._avg_mo_label.setText(f"AVG/MO  {avg_sign}{fmt_eur(avg_mo)}")
@@ -805,11 +809,13 @@ class DashboardView(QScrollArea):
         self._change_value.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none; outline: none;")
 
     def _render_comparison(self, latest: dict, prev: dict, fx_total: float):  # noqa: ARG002
-        change = latest["total"] - prev["total"]
+        latest_total = latest["total"] + (latest.get("portfolio_eur") or 0.0)
+        prev_total   = prev["total"]   + (prev.get("portfolio_eur")   or 0.0)
+        change = latest_total - prev_total
         color  = GREEN if change >= 0 else RED
         self._change_value.setText(fmt_eur_signed(change))
         self._change_value.setStyleSheet(f"color: {color}; background: transparent; border: none; outline: none;")
-        pct = (change / prev["total"] * 100) if prev["total"] else 0.0
+        pct = (change / prev_total * 100) if prev_total else 0.0
         pct_sign = "+" if pct >= 0 else ""
         arrow = "▲" if change >= 0 else "▼"
         if hasattr(self, '_nw_pill_row') and self._nw_pill_row is not None:
