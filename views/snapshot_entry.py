@@ -469,8 +469,13 @@ class SnapshotEntryView(QScrollArea):
         save_h.setSpacing(16)
         save_btn = QPushButton("Save Snapshot")
         save_btn.setFont(QFont(FONT, 13))
-        save_btn.setProperty("class", "accent")
         save_btn.setFixedWidth(150)
+        save_btn.setStyleSheet(
+            "QPushButton { background: #00b4d8; color: #0d1117; border: none;"
+            " border-radius: 8px; padding: 8px 14px; font-weight: 600; }"
+            "QPushButton:hover { background: #00d4ff; }"
+            "QPushButton:pressed { background: #0088a8; }"
+        )
         save_btn.clicked.connect(self._save)
         save_h.addWidget(save_btn)
         self._status_label = QLabel("")

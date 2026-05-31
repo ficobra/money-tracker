@@ -35,8 +35,10 @@ def bind_numeric_entry(widget) -> None:
     Also handles comma-to-dot conversion on textChanged.
     """
     from PyQt6.QtGui import QDoubleValidator
+    from PyQt6.QtCore import QLocale
     validator = QDoubleValidator(0.0, 999999999.0, 2, widget)
     validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+    validator.setLocale(QLocale(QLocale.Language.English, QLocale.Country.UnitedStates))
     widget.setValidator(validator)
 
     def _fix_comma(text: str) -> None:
