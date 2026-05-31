@@ -38,4 +38,4 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh variable set LAST_NOTIFICATION_SENT \
-            --body "${{ steps.notifier.outputs.sent_month }}"
+            --body "${{ steps.notifier.outputs.sent_month }}" || true
