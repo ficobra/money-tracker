@@ -1506,16 +1506,7 @@ class PortfolioView(QScrollArea):
             err_lbl.setText("")
             _set_busy(True)
 
-            def do_validate() -> None:
-                valid = False
-                try:
-                    if _YF_AVAILABLE:
-                        valid = yf.Ticker(ticker).fast_info.last_price is not None
-                except Exception:
-                    pass
-                QTimer.singleShot(0, lambda: _on_validate_done(valid, ticker, shares, avg))
-
-            threading.Thread(target=do_validate, daemon=True).start()
+            _commit(ticker, shares, avg)
 
         save_btn.clicked.connect(_on_save)
         dlg.exec()

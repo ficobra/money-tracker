@@ -162,7 +162,7 @@ The "Budget" tab is split into two sections:
 - **Fallback**: if live fetch fails, reads `portfolio_cache` table and re-applies EUR rate; shows warning status label
 - **Position cards**: 2-column grid; shows ticker, company name, current price (original + EUR), today's change, shares, current value, P&L in EUR + % return
 - **Summary card**: total portfolio value EUR + total P&L + P&L%
-- **Dialogs**: Add position (`open_dialog(self, 460, 350)`) with helper text below Ticker field (`wraplength=280`, `padx=(140,0)`) and background ticker validation ("Checking…" state, `winfo_exists()` guard); Edit position (`open_dialog(self, 460, 310)`, ticker field disabled, no validation); Delete confirm (`open_dialog(self, 400, 140)`)
+- **Dialogs**: Add position (`open_dialog(self, 460, 350)`) — commits immediately via `_commit(ticker, shares, avg)` with no async ticker validation (background `do_validate` thread and `_on_validate_done` removed from the hot path; `_on_validate_done`/`_set_busy` remain as dead code); Edit position (`open_dialog(self, 460, 310)`, ticker field disabled, no validation); Delete confirm (`open_dialog(self, 400, 140)`)
 - **Refresh button**: icon only — text="↻", width=36, size=18. Disabled during fetch (shows "·"), re-enabled in `_on_fetch_done()` with "Prices updated" status for 3s (live fetch only), then reverts to "Last updated: HH:MM"
 - **`refresh()`** called by `show_view()` — renders positions from DB with cached prices; starts background fetch if `_price_data` is empty
 - yfinance installed in venv; in `requirements.txt`
