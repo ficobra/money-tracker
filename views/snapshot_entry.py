@@ -1074,20 +1074,25 @@ class SnapshotEntryView(QScrollArea):
         total_snapshots = save_snapshot(year, month, balances)
 
         # Store current portfolio value with the snapshot
-        try:
-            positions = get_portfolio_positions()
-            cache = get_portfolio_cache()
-            port_total_eur = 0.0
-            for pos in positions:
-                t = pos["ticker"]
-                if t not in cache:
-                    continue
-                c = cache[t]
-                price_eur = c.get("price_eur") or c.get("price", 0.0)
-                port_total_eur += pos["shares"] * price_eur
-            update_snapshot_portfolio(year, month, port_total_eur)
-        except Exception:
-            pass
+        # Only update portfolio_eur for the current month — never overwrite historical months
+        today = date.today()
+        if year == today.year and month == today.month:
+            try:
+                positions = get_portfolio_positions()
+                cache = get_portfolio_cache()
+                port_total_eur = 0.0
+                for pos in positions:
+                    t = pos["ticker"]
+                    if t not in cache:
+                        continue
+                    c = cache[t]
+                    price_eur = c.get("price_eur") or c.get("price", 0.0)
+                    port_total_eur += pos["shares"] * price_eur
+                # Only write if we actually have priced positions — never zero out a good value
+                if port_total_eur > 0:
+                    update_snapshot_portfolio(year, month, port_total_eur)
+            except Exception:
+                pass
 
         # Save income amounts
         for iid, widget in self._income_amount_widgets.items():

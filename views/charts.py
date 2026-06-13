@@ -41,6 +41,11 @@ _FIG_H = 3.2
 _TRACKER_COLORS = ["#00b4d8", "#A78BFA", "#F59E0B", "#10B981", "#EF4444", "#F97316"]
 
 
+def _snap_total_incl(s: dict) -> float:
+    """Return snapshot total including portfolio_eur if available."""
+    return s["total"] + (dict(s).get("portfolio_eur") or 0.0)
+
+
 def _snap_label(snap: dict) -> str:
     return f"{_MONTHS_SHORT[snap['month'] - 1]} '{str(snap['year'])[2:]}"
 
@@ -479,8 +484,8 @@ class ChartsView(QScrollArea):
         self.make_filter_row(inner_layout, change_options, self._change_filter, self._set_change_filter)
 
         if len(snaps) >= 2:
-            current_change = snaps[-1]["total"] - snaps[-2]["total"]
-            prev_change = (snaps[-2]["total"] - snaps[-3]["total"]) if len(snaps) >= 3 else None
+            current_change = _snap_total_incl(snaps[-1]) - _snap_total_incl(snaps[-2])
+            prev_change = (_snap_total_incl(snaps[-2]) - _snap_total_incl(snaps[-3])) if len(snaps) >= 3 else None
             self._build_chart_header(inner_layout, current_change, prev_change)
         else:
             no_data = QLabel("No data for selected period.")
@@ -496,7 +501,7 @@ class ChartsView(QScrollArea):
 
         cl.addWidget(inner)
 
-        changes = [snaps[i + 1]["total"] - snaps[i]["total"] for i in range(len(snaps) - 1)]
+        changes = [_snap_total_incl(snaps[i + 1]) - _snap_total_incl(snaps[i]) for i in range(len(snaps) - 1)]
         labels = [_snap_label(s) for s in snaps[1:]]
         x = list(range(len(changes)))
         colors = [pal["green"] if c >= 0 else pal["red"] for c in changes]
@@ -553,7 +558,7 @@ class ChartsView(QScrollArea):
         prev_nw: dict[tuple, float] = {}
         for i in range(1, len(snapshots)):
             key = (snapshots[i]["year"], snapshots[i]["month"])
-            prev_nw[key] = snapshots[i - 1]["total"]
+            prev_nw[key] = _snap_total_incl(snapshots[i - 1])
 
         inc_per_month: list[float] = []
         spent_per_month: list[float | None] = []
@@ -561,11 +566,11 @@ class ChartsView(QScrollArea):
         for s in snaps:
             snap_inc = get_snapshot_income(s["year"], s["month"])
             extras = get_extra_income(s["year"], s["month"])
-            income = (sum(snap_inc.values()) + sum(e["amount"] for e in extras)) if snap_inc else 0.0
+            income = sum(snap_inc.values() if snap_inc else []) + sum(e["amount"] for e in extras)
             inc_per_month.append(income)
             key = (s["year"], s["month"])
             if key in prev_nw:
-                spent_per_month.append(prev_nw[key] + income - s["total"])
+                spent_per_month.append(prev_nw[key] + income - _snap_total_incl(s))
             else:
                 spent_per_month.append(None)
 
@@ -867,7 +872,7 @@ class ChartsView(QScrollArea):
         changes: dict[tuple, float] = {}
         for i in range(1, len(snapshots)):
             s = snapshots[i]
-            changes[(s["year"], s["month"])] = s["total"] - snapshots[i - 1]["total"]
+            changes[(s["year"], s["month"])] = _snap_total_incl(s) - _snap_total_incl(snapshots[i - 1])
 
         if not changes:
             return

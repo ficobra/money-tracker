@@ -287,8 +287,35 @@ class DashboardView(QScrollArea):
         ch_v.setContentsMargins(20, 20, 20, 20)
         ch_v.setSpacing(4)
         ch_v.addLayout(make_eyebrow("MONTHLY CHANGE"))
-        self._change_value = make_label("—", 28, bold=True)
-        ch_v.addWidget(self._change_value)
+        ch_v.addSpacing(6)
+
+        # Net Worth row
+        nw_row = QWidget()
+        nw_row.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        nw_row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        nw_row.setStyleSheet("background: transparent; border: none;")
+        nw_row_h = QHBoxLayout(nw_row)
+        nw_row_h.setContentsMargins(0, 0, 0, 0)
+        nw_row_h.setSpacing(8)
+        nw_row_h.addWidget(make_label("NET WORTH", 10, color=TEXT_SEC))
+        nw_row_h.addStretch()
+        self._change_value = make_label("—", 13, bold=True)
+        nw_row_h.addWidget(self._change_value)
+        ch_v.addWidget(nw_row)
+
+        # Cash row
+        cash_row = QWidget()
+        cash_row.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        cash_row.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        cash_row.setStyleSheet("background: transparent; border: none;")
+        cash_row_h = QHBoxLayout(cash_row)
+        cash_row_h.setContentsMargins(0, 4, 0, 0)
+        cash_row_h.setSpacing(8)
+        cash_row_h.addWidget(make_label("CASH", 10, color=TEXT_SEC))
+        cash_row_h.addStretch()
+        self._cash_change_label = make_label("—", 13)
+        cash_row_h.addWidget(self._cash_change_label)
+        ch_v.addWidget(cash_row)
         ch_v.addStretch()
         self._change_spark_container = QWidget()
         self._change_spark_container.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
@@ -463,13 +490,11 @@ class DashboardView(QScrollArea):
                 labels=month_labels,
                 figsize=(1.7, 0.9),
             )
-            def _snap_total(s: dict) -> float:
-                return s["total"] + (s.get("portfolio_eur") or 0.0)
-            changes = [
-                _snap_total(all_snaps[i + 1]) - _snap_total(all_snaps[i])
+            cash_changes = [
+                all_snaps[i + 1]["total"] - all_snaps[i]["total"]
                 for i in range(len(all_snaps) - 1)
             ]
-            self._add_sparkline(self._change_spark_container, changes[-6:], "bar", bg="#111d2e")
+            self._add_sparkline(self._change_spark_container, cash_changes[-6:], "bar", bg="#111d2e")
 
         if prev:
             latest_str = _mlabel(latest['year'], latest['month'])
@@ -487,10 +512,23 @@ class DashboardView(QScrollArea):
         if len(all_snaps) >= 2:
             def _total_incl(s: dict) -> float:
                 return s["total"] + (s.get("portfolio_eur") or 0.0)
-            all_changes = [_total_incl(all_snaps[i+1]) - _total_incl(all_snaps[i]) for i in range(len(all_snaps)-1)]
-            avg_mo = sum(all_changes) / len(all_changes)
-            avg_sign = "+" if avg_mo >= 0 else ""
-            self._avg_mo_label.setText(f"AVG/MO  {avg_sign}{fmt_eur(avg_mo)}")
+            def _change_guarded(a: dict, b: dict) -> float:
+                a_port = a.get("portfolio_eur") or 0.0
+                b_port = b.get("portfolio_eur") or 0.0
+                if a_port > 0 and b_port > 0:
+                    return _total_incl(b) - _total_incl(a)
+                return b["total"] - a["total"]
+            all_changes = [_change_guarded(all_snaps[i], all_snaps[i+1]) for i in range(len(all_snaps)-1)]
+            first = all_snaps[0]
+            last  = all_snaps[-1]
+            elapsed_months = (last["year"] - first["year"]) * 12 + (last["month"] - first["month"])
+            avg_mo = sum(all_changes) / elapsed_months if elapsed_months > 0 else 0.0
+            avg_mo_sign = "+" if avg_mo >= 0 else ""
+            cash_avg = sum(cash_changes) / elapsed_months if elapsed_months > 0 else 0.0
+            cash_avg_sign = "+" if cash_avg >= 0 else ""
+            self._avg_mo_label.setText(
+                f"AVG/MO  {avg_mo_sign}{fmt_eur(avg_mo)}  ·  Cash {cash_avg_sign}{fmt_eur(cash_avg)}"
+            )
             self._avg_mo_label.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none;")
         self._render_estimation(latest, expenses)
         self._render_prediction_accuracy(all_snaps)
@@ -591,8 +629,14 @@ class DashboardView(QScrollArea):
                 port_total_eur += pos["shares"] * price_eur
                 port_cost_eur  += pos["shares"] * pos["avg_buy_price"] * eur_rate
 
-        # NW portfolio label (always visible; empty text when no data)
-        if has_portfolio and latest and port_total_eur > 0:
+        # NW portfolio label — use stored portfolio_eur from snapshot for consistency with pill
+        stored_port = (latest.get("portfolio_eur") or 0.0) if latest else 0.0
+        if latest and stored_port > 0:
+            self._nw_portfolio_lbl.setText(
+                f"{fmt_eur(latest['total'] + stored_port)} incl. portfolio"
+            )
+        elif has_portfolio and latest and port_total_eur > 0:
+            # Fall back to live value if no stored value yet
             self._nw_portfolio_lbl.setText(
                 f"{fmt_eur(latest['total'] + port_total_eur)} incl. portfolio"
             )
@@ -608,11 +652,11 @@ class DashboardView(QScrollArea):
         if latest:
             si = get_snapshot_income(latest["year"], latest["month"])
             ex = get_extra_income(latest["year"], latest["month"])
-            last_mo_income = (sum(si.values()) + sum(e["amount"] for e in ex)) if si else 0.0
+            last_mo_income = sum(si.values() if si else []) + sum(e["amount"] for e in ex)
             if prev_snap:
                 si2 = get_snapshot_income(prev_snap["year"], prev_snap["month"])
                 ex2 = get_extra_income(prev_snap["year"], prev_snap["month"])
-                prev_income      = (sum(si2.values()) + sum(e["amount"] for e in ex2)) if si2 else 0.0
+                prev_income      = sum(si2.values() if si2 else []) + sum(e["amount"] for e in ex2)
                 prev_month_label = MONTHS[prev_snap["month"] - 1]
                 if prev_income > 0:
                     pct_change = (last_mo_income - prev_income) / prev_income * 100
@@ -800,22 +844,56 @@ class DashboardView(QScrollArea):
         self._period_label.setText("No data yet")
         self._nw_value.setText("—")
         self._nw_value.setStyleSheet(f"color: {TEXT_SEC}; background: transparent;")
-        self._change_value.setText("—")
-        self._change_value.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none; outline: none;")
+        if isinstance(self._change_value, QLabel):
+            self._change_value.setText("—")
+            self._change_value.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none; outline: none;")
         _clear_layout(self._breakdown_layout)
 
     def _render_one_snapshot(self):
-        self._change_value.setText("—")
-        self._change_value.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none; outline: none;")
+        if isinstance(self._change_value, QLabel):
+            self._change_value.setText("—")
+            self._change_value.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none; outline: none;")
+        if hasattr(self, '_cash_change_label') and isinstance(self._cash_change_label, QLabel):
+            self._cash_change_label.setText("—")
+            self._cash_change_label.setStyleSheet(f"color: {TEXT_SEC}; background: transparent; border: none; outline: none;")
 
     def _render_comparison(self, latest: dict, prev: dict, fx_total: float):  # noqa: ARG002
-        latest_total = latest["total"] + (latest.get("portfolio_eur") or 0.0)
-        prev_total   = prev["total"]   + (prev.get("portfolio_eur")   or 0.0)
+        latest_port = latest.get("portfolio_eur") or 0.0
+        prev_port   = prev.get("portfolio_eur")   or 0.0
+        # Only include portfolio in both sides if both snapshots have portfolio data
+        # Avoids artificial spike when portfolio_eur transitions from 0 to a real value
+        if latest_port > 0 and prev_port > 0:
+            latest_total = latest["total"] + latest_port
+            prev_total   = prev["total"]   + prev_port
+        else:
+            latest_total = latest["total"]
+            prev_total   = prev["total"]
         change = latest_total - prev_total
         color  = GREEN if change >= 0 else RED
-        self._change_value.setText(fmt_eur_signed(change))
-        self._change_value.setStyleSheet(f"color: {color}; background: transparent; border: none; outline: none;")
-        pct = (change / prev_total * 100) if prev_total else 0.0
+        arrow = "▲" if change >= 0 else "▼"
+        cash_change = latest["total"] - prev["total"]
+        cash_color = GREEN if cash_change >= 0 else RED
+        cash_arrow = "▲" if cash_change >= 0 else "▼"
+
+        # Replace _change_value widget with a pill in its parent layout
+        nw_parent = self._change_value.parentWidget()
+        nw_lay = nw_parent.layout() if nw_parent is not None else None
+        if nw_lay is not None:
+            nw_lay.removeWidget(self._change_value)
+            self._change_value.deleteLater()
+            self._change_value = make_pill(f"{arrow} {fmt_eur_signed(change)}", color=color)
+            nw_lay.addWidget(self._change_value)
+
+        # Replace _cash_change_label widget with a pill in its parent layout
+        if hasattr(self, '_cash_change_label'):
+            cash_parent = self._cash_change_label.parentWidget()
+            cash_lay = cash_parent.layout() if cash_parent is not None else None
+            if cash_lay is not None:
+                cash_lay.removeWidget(self._cash_change_label)
+                self._cash_change_label.deleteLater()
+                self._cash_change_label = make_pill(f"{cash_arrow} {fmt_eur_signed(cash_change)}", color=cash_color)
+                cash_lay.addWidget(self._cash_change_label)
+        pct = (change / abs(prev_total) * 100) if prev_total else 0.0
         pct_sign = "+" if pct >= 0 else ""
         arrow = "▲" if change >= 0 else "▼"
         if hasattr(self, '_nw_pill_row') and self._nw_pill_row is not None:
@@ -942,7 +1020,19 @@ class DashboardView(QScrollArea):
         buffer_cost   = last_day * daily_buffer
         all_fx        = list(expenses)
         fx_total      = sum(e["amount"] for e in all_fx)
-        estimated_eom = latest["total"] - buffer_cost - fx_total
+
+        # Use recorded income for current month if already entered, otherwise use latest snapshot's income as estimate
+        si_cur = get_snapshot_income(today.year, today.month)
+        ex_cur = get_extra_income(today.year, today.month)
+        if si_cur:
+            expected_income = sum(si_cur.values()) + sum(e["amount"] for e in ex_cur)
+        else:
+            # Fall back to latest snapshot's income as a reasonable estimate
+            si_lat = get_snapshot_income(latest["year"], latest["month"])
+            ex_lat = get_extra_income(latest["year"], latest["month"])
+            expected_income = (sum(si_lat.values()) + sum(e["amount"] for e in ex_lat)) if si_lat else 0.0
+
+        estimated_eom = latest["total"] + expected_income - buffer_cost - fx_total
         est_change    = estimated_eom - latest["total"]
 
         card  = make_card_l1()
@@ -969,7 +1059,9 @@ class DashboardView(QScrollArea):
             row_h.addWidget(make_label(value, 12, color=color))
             card_v.addWidget(row_w)
 
+        income_label = "Expected income (current month)" if si_cur else f"Expected income (est. from {_mlabel(latest['year'], latest['month'])})"
         est_row("Latest net worth", fmt_eur(latest["total"]))
+        est_row(income_label, f"+{fmt_eur(expected_income)}", GREEN)
         est_row(
             f"Daily allowance  ({last_day} days × €{daily_buffer:.0f}/day)",
             f"–{fmt_eur(buffer_cost)}", RED,

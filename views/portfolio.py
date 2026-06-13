@@ -648,11 +648,14 @@ class PortfolioView(QScrollArea):
         pnl_sign = "+" if pnl >= 0 else ""
 
         # Save portfolio_eur to latest snapshot after fresh fetch
+        # Only update if the latest snapshot is for the current calendar month
         if total_eur > 0 and not self._using_cache:
             latest = get_latest_snapshots(1)
             if latest:
                 s = latest[0]
-                update_snapshot_portfolio(s["year"], s["month"], total_eur)
+                today = date.today()
+                if s["year"] == today.year and s["month"] == today.month:
+                    update_snapshot_portfolio(s["year"], s["month"], total_eur)
 
         # Card 0: Portfolio Value
         self._port_value_lbl.setText(fmt_eur(total_eur) if n_holdings else "—")
